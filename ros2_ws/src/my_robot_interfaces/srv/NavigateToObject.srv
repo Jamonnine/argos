@@ -1,0 +1,23 @@
+# NavigateToObject.srv
+# AI가 감지한 특정 클래스의 객체 앞으로 이동 요청
+#
+# 설계 원칙:
+# - Service = 일회성 동기 요청. "지금 바로 결정해줘"
+# - 이동 완료까지 기다리는 것은 Action 사용. Service는 "수락 여부"만 반환.
+# - min_confidence: 클라이언트가 품질 기준을 제어 가능 (생산 라인 정밀도 요구)
+
+# Request ─────────────────────────────────────
+string target_class             # 이동할 객체 클래스 ("box", "person")
+float32 min_confidence          # 최소 확신도 임계값 (0.0~1.0)
+float32 approach_distance       # 객체 앞 몇 미터까지 접근할지 (기본 0.5m)
+bool use_latest_detection       # true: 가장 최근 감지 결과 사용
+                                # false: 실시간 감지로 목표 재확인
+
+---
+
+# Response ────────────────────────────────────
+bool accepted                   # 요청 수락 여부
+string message                  # 수락/거부 이유
+geometry_msgs/Pose target_pose  # 이동할 실제 목표 위치 (map 좌표계)
+string object_id                # 선택된 객체의 track_id (추적 목적)
+float32 estimated_distance      # 현재 로봇과 목표 사이 거리

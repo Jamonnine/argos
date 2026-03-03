@@ -1,0 +1,25 @@
+# ROS 2 빌드 아티팩트
+build/
+install/
+log/
+ros2_ws/build/
+ros2_ws/install/
+ros2_ws/log/
+
+# 대용량 세션 트랜스크립트
+learning-log/**/session-transcript*.md
+learning-log/**/day*-session-transcript*.md
+
+# 스크린샷 (용량)
+learning-log/screenshots/
+
+# Claude 로컬 설정
+.claude/settings.local.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc

@@ -1,0 +1,22 @@
+# MoveToTarget.action
+# ROS 2 Action 정의 파일
+#
+# 형식: Goal --- Result --- Feedback (세 개의 --- 구분자로 분리)
+#
+# Goal (목표): 클라이언트가 서버에게 보내는 요청
+geometry_msgs/PoseStamped target_pose   # 팔이 이동할 목표 자세
+
+---
+
+# Result (결과): 작업 완료 후 최종 응답
+bool success                            # 성공 여부
+string message                          # 성공/실패 메시지
+geometry_msgs/PoseStamped final_pose    # 최종 도달한 자세
+
+---
+
+# Feedback (피드백): 작업 진행 중 주기적으로 보내는 중간 보고
+float32 progress          # 진행률: 0.0 ~ 1.0
+string current_state      # 현재 상태: "PLANNING", "MOVING", "REACHED"
+geometry_msgs/PoseStamped current_pose  # 현재 팔 위치
+float32 distance_remaining             # 목표까지 남은 거리 (미터)
