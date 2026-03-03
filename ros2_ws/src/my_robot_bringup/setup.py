@@ -39,6 +39,8 @@ setup(
             'turtle_controller = my_robot_bringup.turtle_controller:main',
             'perception_bridge = my_robot_bringup.perception_bridge_node:main',
             'qos_demo = my_robot_bringup.qos_demo_node:main',
+            'patrol_server = my_robot_bringup.patrol_action_server:main',
+            'patrol_client = my_robot_bringup.patrol_action_client:main',
         ],
     },
 )

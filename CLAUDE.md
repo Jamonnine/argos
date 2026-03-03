@@ -170,7 +170,7 @@ ARGOS/
 ```
 
 ### 심볼릭 링크
-- `~/ros2_ws` → `/mnt/c/Users/USER/Desktop/ARGOS/ros2_ws`
+- `~/ros2_ws` → `/mnt/c/Users/USER/Desktop/SUPERAGENT/projects/argos/ros2_ws`
 - 터미널에서는 `~/ros2_ws` 사용 (편의)
 - AI 도구는 Windows 경로 사용 (호환성)
 

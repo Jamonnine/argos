@@ -1,0 +1,40 @@
+# PatrolArea.action
+# ARGOS 핵심 Action — 오케스트레이터가 개별 로봇에 구역 수색을 명령
+#
+# 설계 원칙:
+# - 플랫폼 무관: 드론이든 UGV든 보행형이든 같은 인터페이스 사용
+# - 소방 무전 패턴: Goal(명령) → Feedback(경과보고) → Result(완료보고)
+# - 철수 지원: Cancel 시 현재 위치와 발견사항을 Result로 반환
+
+# ============================================
+# Goal: 오케스트레이터 → 로봇 ("이 구역을 수색하라")
+# ============================================
+geometry_msgs/PoseStamped[] waypoints    # 순찰 경유지 목록 (순서대로 방문)
+float32 timeout_sec                      # 최대 수색 시간 (초). 초과 시 자동 복귀
+string search_pattern                    # "sequential" | "frontier" | "spiral"
+uint8 priority                           # 1=긴급(인명수색), 2=일반(화점확인), 3=낮음(잔불점검)
+
+---
+
+# ============================================
+# Result: 로봇 → 오케스트레이터 ("수색 완료 보고")
+# ============================================
+bool success                             # 전체 구역 수색 완료 여부
+string result_code                       # "COMPLETED" | "TIMEOUT" | "CANCELLED" | "ABORTED"
+int32 waypoints_visited                  # 방문 완료한 경유지 수
+float32 coverage_percent                 # 구역 커버리지 (0.0~100.0)
+float32 elapsed_sec                      # 소요 시간 (초)
+float32 distance_traveled                # 총 이동 거리 (미터)
+string[] discoveries                     # 발견 사항 목록 ("THERMAL:3F-302", "VICTIM:3F-305" 등)
+
+---
+
+# ============================================
+# Feedback: 로봇 → 오케스트레이터 ("현재 상황 보고")
+# ============================================
+geometry_msgs/PoseStamped current_pose   # 현재 위치
+int32 current_waypoint_index             # 현재 향하고 있는 경유지 번호
+float32 progress                         # 전체 진행률 (0.0~1.0)
+string status                            # "MOVING" | "SCANNING" | "OBSTACLE" | "RETURNING"
+float32 battery_percent                  # 배터리 잔량 (%)
+string[] discoveries_so_far              # 지금까지 발견한 것들
