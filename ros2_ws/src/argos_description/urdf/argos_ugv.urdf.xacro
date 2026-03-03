@@ -1,0 +1,70 @@
+<?xml version="1.0"?>
+<!--
+  ARGOS UGV 최상위 조립 파일
+  ============================
+  이 파일은 include 전용 — 로직 없음, 조합만.
+  센서를 추가/제거하려면 아래 include 줄을 주석처리하면 됨.
+
+  구조:
+    Platform (base + wheels)
+    └─ Sensors (LiDAR, cameras, IMU)
+    └─ Control (ros2_control + diff_drive)
+-->
+<robot name="argos_ugv" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- ===== 시뮬레이션 모드 파라미터 ===== -->
+  <xacro:arg name="use_sim" default="true"/>
+  <xacro:property name="use_sim" value="$(arg use_sim)"/>
+
+  <!-- ===== 1. Platform 계층 ===== -->
+  <xacro:include filename="$(find argos_description)/urdf/platform/base.urdf.xacro"/>
+
+  <!-- ===== 2. Sensor 계층 ===== -->
+  <xacro:include filename="$(find argos_description)/urdf/sensors/lidar.urdf.xacro"/>
+  <xacro:include filename="$(find argos_description)/urdf/sensors/rgb_camera.urdf.xacro"/>
+  <xacro:include filename="$(find argos_description)/urdf/sensors/depth_camera.urdf.xacro"/>
+  <xacro:include filename="$(find argos_description)/urdf/sensors/imu.urdf.xacro"/>
+  <xacro:include filename="$(find argos_description)/urdf/sensors/thermal_camera.urdf.xacro"/>
+
+  <!-- ===== 3. Control 계층 ===== -->
+  <xacro:include filename="$(find argos_description)/urdf/control/ros2_control.urdf.xacro"/>
+
+  <!-- ===== 센서 인스턴스화 ===== -->
+
+  <!-- LiDAR: 센서 플랫폼 위 중앙 -->
+  <xacro:lidar_sensor
+    parent_link="sensor_platform_link"
+    xyz="0 0 ${sensor_platform_height/2 + 0.02}"
+    topic="/scan"/>
+
+  <!-- RGB 카메라: 전방 상단 -->
+  <xacro:rgb_camera
+    parent_link="base_link"
+    xyz="${camera_x} 0 ${camera_z}"
+    camera_name="front_camera"
+    topic="/camera/image_raw"/>
+
+  <!-- 깊이 카메라: RGB 카메라 옆 (RealSense 위치) -->
+  <xacro:depth_camera
+    parent_link="base_link"
+    xyz="${camera_x} 0.04 ${camera_z}"
+    camera_name="depth_camera"
+    topic="/depth_camera"/>
+
+  <!-- IMU: 섀시 중심 -->
+  <xacro:imu_sensor
+    parent_link="base_link"
+    xyz="0 0 0"
+    topic="/imu/data"/>
+
+  <!-- 열화상 카메라: 전방 하단 (화점 감지용) -->
+  <xacro:thermal_camera
+    parent_link="base_link"
+    xyz="${camera_x} 0 ${-base_height/2 + 0.05}"
+    camera_name="thermal_camera"
+    topic="/thermal/image_raw"/>
+
+  <!-- ===== ros2_control 인스턴스화 ===== -->
+  <xacro:argos_ros2_control use_sim="${use_sim}"/>
+
+</robot>

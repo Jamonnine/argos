@@ -1,0 +1,75 @@
+<?xml version="1.0"?>
+<!--
+  ARGOS ros2_control 하드웨어 인터페이스
+  =======================================
+  gz_ros2_control 플러그인으로 Gazebo ↔ ros2_control 연결.
+  각 바퀴에 velocity command + position/velocity state 인터페이스.
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:macro name="argos_ros2_control" params="use_sim:='true'">
+
+    <ros2_control name="ArgosSystem" type="system">
+      <hardware>
+        <xacro:if value="${use_sim}">
+          <plugin>gz_ros2_control/GazeboSimSystem</plugin>
+        </xacro:if>
+        <xacro:unless value="${use_sim}">
+          <!-- 실제 하드웨어 전환 시 여기에 HW 인터페이스 플러그인 -->
+          <plugin>argos_hardware/ArgosHardwareInterface</plugin>
+        </xacro:unless>
+      </hardware>
+
+      <!-- 전방 좌측 바퀴 -->
+      <joint name="front_left_wheel_joint">
+        <command_interface name="velocity">
+          <param name="min">-10.0</param>
+          <param name="max">10.0</param>
+        </command_interface>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+
+      <!-- 전방 우측 바퀴 -->
+      <joint name="front_right_wheel_joint">
+        <command_interface name="velocity">
+          <param name="min">-10.0</param>
+          <param name="max">10.0</param>
+        </command_interface>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+
+      <!-- 후방 좌측 바퀴 -->
+      <joint name="rear_left_wheel_joint">
+        <command_interface name="velocity">
+          <param name="min">-10.0</param>
+          <param name="max">10.0</param>
+        </command_interface>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+
+      <!-- 후방 우측 바퀴 -->
+      <joint name="rear_right_wheel_joint">
+        <command_interface name="velocity">
+          <param name="min">-10.0</param>
+          <param name="max">10.0</param>
+        </command_interface>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+    </ros2_control>
+
+    <!-- Gazebo 시뮬레이션 전용: gz_ros2_control 플러그인 로드 -->
+    <xacro:if value="${use_sim}">
+      <gazebo>
+        <plugin filename="gz_ros2_control-system" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
+          <parameters>$(find argos_description)/config/controllers.yaml</parameters>
+        </plugin>
+      </gazebo>
+    </xacro:if>
+
+  </xacro:macro>
+
+</robot>

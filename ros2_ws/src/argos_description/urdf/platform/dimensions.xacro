@@ -1,0 +1,61 @@
+<?xml version="1.0"?>
+<!--
+  ARGOS UGV 치수 파라미터
+  ========================
+  모든 치수를 한 곳에서 관리. 로봇 크기를 바꾸려면 이 파일만 수정.
+
+  설계 기준:
+  - 실내 건물 진입 가능 크기 (복도 폭 ~1.2m 기준, 로봇 폭 0.45m)
+  - HR-Sherpa 대비 약 1/3 스케일 (시뮬레이션 최적화)
+  - 4WD 스킵 스티어 (차동 구동의 확장)
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- ========== 섀시 ========== -->
+  <xacro:property name="base_length"  value="0.60"/>
+  <xacro:property name="base_width"   value="0.40"/>
+  <xacro:property name="base_height"  value="0.15"/>
+  <xacro:property name="base_mass"    value="15.0"/>
+
+  <!-- 지면으로부터 섀시 바닥까지 간격 -->
+  <xacro:property name="ground_clearance" value="0.05"/>
+
+  <!-- ========== 바퀴 ========== -->
+  <xacro:property name="wheel_radius"    value="0.10"/>
+  <xacro:property name="wheel_width"     value="0.05"/>
+  <xacro:property name="wheel_mass"      value="1.0"/>
+
+  <!-- 바퀴 위치 (섀시 중심 기준) -->
+  <xacro:property name="wheel_x_offset"  value="0.20"/>
+  <xacro:property name="wheel_y_offset"  value="${base_width / 2 + wheel_width / 2 + 0.01}"/>
+
+  <!-- ========== 센서 마운트 높이 ========== -->
+  <!-- base_link 위 센서 플랫폼 -->
+  <xacro:property name="sensor_platform_height" value="0.05"/>
+  <xacro:property name="sensor_platform_z"       value="${base_height / 2 + sensor_platform_height / 2}"/>
+
+  <!-- LiDAR: 센서 플랫폼 위 -->
+  <xacro:property name="lidar_z" value="${base_height / 2 + sensor_platform_height + 0.02}"/>
+
+  <!-- 카메라: 전방 상단 -->
+  <xacro:property name="camera_x" value="${base_length / 2}"/>
+  <xacro:property name="camera_z" value="${base_height / 2 - 0.02}"/>
+
+  <!-- IMU: 섀시 중심 -->
+  <xacro:property name="imu_z" value="0.0"/>
+
+  <!-- ========== 색상 ========== -->
+  <material name="argos_red">
+    <color rgba="0.8 0.1 0.1 1.0"/>
+  </material>
+  <material name="argos_dark">
+    <color rgba="0.15 0.15 0.15 1.0"/>
+  </material>
+  <material name="argos_silver">
+    <color rgba="0.7 0.7 0.7 1.0"/>
+  </material>
+  <material name="argos_yellow">
+    <color rgba="1.0 0.8 0.0 1.0"/>
+  </material>
+
+</robot>

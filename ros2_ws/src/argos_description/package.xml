@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>argos_description</name>
+  <version>0.1.0</version>
+  <description>ARGOS UGV robot description (URDF/xacro) with modular sensor mounting</description>
+
+  <maintainer email="jamonnine@gmail.com">jamonnine</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>urdf</depend>
+  <depend>xacro</depend>
+  <depend>robot_state_publisher</depend>
+  <depend>joint_state_publisher_gui</depend>
+
+  <!-- Gazebo Harmonic -->
+  <depend>ros_gz</depend>
+  <depend>gz_ros2_control</depend>
+
+  <!-- Controllers -->
+  <depend>controller_manager</depend>
+  <depend>diff_drive_controller</depend>
+  <depend>joint_state_broadcaster</depend>
+
+  <exec_depend>rviz2</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
