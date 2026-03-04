@@ -1,0 +1,346 @@
+<?xml version="1.0" ?>
+<!--
+  ARGOS 실내 테스트 월드
+  ========================
+  Nav2 + SLAM 통합 테스트를 위한 간단한 실내 환경.
+  3개의 방 + 복도 구조. 벽 높이 2.5m.
+
+  레이아웃 (위에서 내려다봄):
+  ┌─────────┬───┬─────────┐
+  │         │   │         │
+  │  방 A   │복 │  방 B   │
+  │  (3×3)  │도 │  (3×3)  │
+  │         │   │         │
+  ├────┐    │   │    ┌────┤
+  │    │    │   │    │    │
+  │    └────┘   └────┘    │
+  │                       │
+  │       방 C (5×3)      │
+  │                       │
+  └───────────────────────┘
+  0,0 = 좌하단 코너
+
+  벽 좌표 (외벽 + 내벽):
+  - 전체 외벽: 10×8m
+  - 방 A: 좌상 (0,5)~(3,8)
+  - 방 B: 우상 (7,5)~(10,8)
+  - 복도: 중앙 (3,5)~(7,8), 폭 4m
+  - 방 C: 하단 (0,0)~(10,5)
+  - 출입구: 방A↔복도, 방B↔복도, 복도↔방C 각 1.2m
+-->
+<sdf version="1.9">
+  <world name="indoor_test">
+
+    <!-- 필수 플러그인 (Gazebo Harmonic) -->
+    <plugin filename="gz-sim-physics-system"
+            name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system"
+            name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system"
+            name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-sensors-system"
+            name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="gz-sim-contact-system"
+            name="gz::sim::systems::Contact"/>
+    <plugin filename="gz-sim-imu-system"
+            name="gz::sim::systems::Imu"/>
+
+    <!-- 물리 엔진 설정 -->
+    <physics name="default_physics" type="ode">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+      <real_time_update_rate>1000</real_time_update_rate>
+    </physics>
+
+    <!-- 조명 -->
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <attenuation>
+        <range>1000</range>
+        <constant>0.9</constant>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <!-- 바닥 -->
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>20 20</size>
+            </plane>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>20 20</size>
+            </plane>
+          </geometry>
+          <material>
+            <ambient>0.6 0.6 0.6 1</ambient>
+            <diffuse>0.6 0.6 0.6 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 벽 매크로 대신 개별 벽 모델 -->
+    <!-- 벽 두께: 0.15m, 높이: 2.5m -->
+
+    <!-- ===== 외벽 ===== -->
+
+    <!-- 남쪽 외벽 (하단) -->
+    <model name="wall_south">
+      <static>true</static>
+      <pose>5 0 1.25 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>10 0.15 2.5</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>10 0.15 2.5</size></box></geometry>
+          <material>
+            <ambient>0.9 0.9 0.85 1</ambient>
+            <diffuse>0.9 0.9 0.85 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 북쪽 외벽 (상단) -->
+    <model name="wall_north">
+      <static>true</static>
+      <pose>5 8 1.25 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>10 0.15 2.5</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>10 0.15 2.5</size></box></geometry>
+          <material>
+            <ambient>0.9 0.9 0.85 1</ambient>
+            <diffuse>0.9 0.9 0.85 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 서쪽 외벽 (좌측) -->
+    <model name="wall_west">
+      <static>true</static>
+      <pose>0 4 1.25 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.15 8 2.5</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.15 8 2.5</size></box></geometry>
+          <material>
+            <ambient>0.9 0.9 0.85 1</ambient>
+            <diffuse>0.9 0.9 0.85 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 동쪽 외벽 (우측) -->
+    <model name="wall_east">
+      <static>true</static>
+      <pose>10 4 1.25 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.15 8 2.5</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.15 8 2.5</size></box></geometry>
+          <material>
+            <ambient>0.9 0.9 0.85 1</ambient>
+            <diffuse>0.9 0.9 0.85 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ===== 내벽 (방 분리) ===== -->
+
+    <!-- 방A-복도 구분 벽 (좌측 세로벽, 문 제외) -->
+    <!-- 하단 부분: y=5 ~ y=5.6 (문 아래) -->
+    <model name="wall_a_corridor_lower">
+      <static>true</static>
+      <pose>3 5.3 1.25 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.15 0.6 2.5</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.15 0.6 2.5</size></box></geometry>
+          <material>
+            <ambient>0.85 0.85 0.80 1</ambient>
+            <diffuse>0.85 0.85 0.80 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 상단 부분: y=6.8 ~ y=8 (문 위) -->
+    <model name="wall_a_corridor_upper">
+      <static>true</static>
+      <pose>3 7.4 1.25 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.15 1.2 2.5</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.15 1.2 2.5</size></box></geometry>
+          <material>
+            <ambient>0.85 0.85 0.80 1</ambient>
+            <diffuse>0.85 0.85 0.80 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 방B-복도 구분 벽 (우측 세로벽, 문 제외) -->
+    <!-- 하단 부분 -->
+    <model name="wall_b_corridor_lower">
+      <static>true</static>
+      <pose>7 5.3 1.25 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.15 0.6 2.5</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.15 0.6 2.5</size></box></geometry>
+          <material>
+            <ambient>0.85 0.85 0.80 1</ambient>
+            <diffuse>0.85 0.85 0.80 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 상단 부분 -->
+    <model name="wall_b_corridor_upper">
+      <static>true</static>
+      <pose>7 7.4 1.25 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.15 1.2 2.5</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.15 1.2 2.5</size></box></geometry>
+          <material>
+            <ambient>0.85 0.85 0.80 1</ambient>
+            <diffuse>0.85 0.85 0.80 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 복도-방C 구분 가로벽 (문 제외) -->
+    <!-- 좌측 부분: x=0 ~ x=4.4 -->
+    <model name="wall_corridor_c_left">
+      <static>true</static>
+      <pose>2.2 5 1.25 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>4.4 0.15 2.5</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>4.4 0.15 2.5</size></box></geometry>
+          <material>
+            <ambient>0.85 0.85 0.80 1</ambient>
+            <diffuse>0.85 0.85 0.80 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 우측 부분: x=5.6 ~ x=10 -->
+    <model name="wall_corridor_c_right">
+      <static>true</static>
+      <pose>7.8 5 1.25 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>4.4 0.15 2.5</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>4.4 0.15 2.5</size></box></geometry>
+          <material>
+            <ambient>0.85 0.85 0.80 1</ambient>
+            <diffuse>0.85 0.85 0.80 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ===== 장애물 (가구/잔해 시뮬레이션) ===== -->
+
+    <!-- 방 C 중앙 테이블 -->
+    <model name="table_c">
+      <static>true</static>
+      <pose>5 2.5 0.4 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>1.2 0.6 0.8</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>1.2 0.6 0.8</size></box></geometry>
+          <material>
+            <ambient>0.55 0.35 0.15 1</ambient>
+            <diffuse>0.55 0.35 0.15 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 방 A 장애물 (쓰러진 선반) -->
+    <model name="debris_a">
+      <static>true</static>
+      <pose>1.5 7 0.3 0 0 0.3</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>1.5 0.4 0.6</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>1.5 0.4 0.6</size></box></geometry>
+          <material>
+            <ambient>0.4 0.4 0.35 1</ambient>
+            <diffuse>0.4 0.4 0.35 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 방 B 의자 -->
+    <model name="chair_b">
+      <static>true</static>
+      <pose>8.5 6.5 0.25 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.5 0.5 0.5</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.5 0.5 0.5</size></box></geometry>
+          <material>
+            <ambient>0.3 0.3 0.5 1</ambient>
+            <diffuse>0.3 0.3 0.5 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+  </world>
+</sdf>

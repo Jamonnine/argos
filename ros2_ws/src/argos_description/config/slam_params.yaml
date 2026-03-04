@@ -1,0 +1,87 @@
+# ARGOS UGV slam_toolbox 파라미터
+# =================================
+# Online Async SLAM: 실시간 지도 생성 + 로봇 위치 추정 동시 수행.
+# ARGOS gpu_lidar (360°, 12m) 스펙에 최적화.
+
+slam_toolbox:
+  ros__parameters:
+    # 솔버 설정 (Ceres Solver: 비선형 최적화)
+    solver_plugin: solver_plugins::CeresSolver
+    ceres_linear_solver: SPARSE_NORMAL_CHOLESKY
+    ceres_preconditioner: SCHUR_JACOBI
+    ceres_trust_strategy: LEVENBERG_MARQUARDT
+    ceres_dogleg_type: TRADITIONAL_DOGLEG
+    ceres_loss_function: None
+
+    # 좌표계 (diff_drive_controller와 통일)
+    odom_frame: odom
+    map_frame: map
+    base_frame: base_footprint
+    scan_topic: /scan
+
+    # 지도 해상도 (5cm/픽셀)
+    resolution: 0.05
+
+    # ARGOS LiDAR 범위 반영 (12m 중 10m 활용)
+    max_laser_range: 10.0
+
+    # 지도 업데이트 조건 (최소 이동량)
+    minimum_travel_distance: 0.3
+    minimum_travel_heading: 0.3
+
+    # 스캔 버퍼
+    scan_buffer_size: 10
+    scan_buffer_maximum_scan_distance: 10.0
+
+    # 루프 클로저 (같은 장소 재방문 감지)
+    link_match_minimum_response_fine: 0.1
+    link_scan_maximum_distance: 1.5
+    loop_search_maximum_distance: 3.0
+    do_loop_closing: true
+    loop_match_minimum_chain_size: 10
+    loop_match_maximum_variance_coarse: 3.0
+    loop_match_minimum_response_coarse: 0.35
+    loop_match_minimum_response_fine: 0.45
+
+    # 스캔 매칭 (상관관계 기반)
+    correlation_search_space_dimension: 0.5
+    correlation_search_space_resolution: 0.01
+    correlation_search_space_smear_deviation: 0.1
+
+    # 루프 클로저 스캔 매칭
+    loop_search_space_dimension: 8.0
+    loop_search_space_resolution: 0.05
+    loop_search_space_smear_deviation: 0.03
+
+    # 거리/각도 패널티
+    distance_variance_penalty: 0.5
+    angle_variance_penalty: 1.0
+    fine_search_angle_offset: 0.00349
+    coarse_search_angle_offset: 0.349
+    coarse_angle_resolution: 0.0349
+    minimum_angle_penalty: 0.9
+    minimum_distance_penalty: 0.5
+    use_response_expansion: true
+
+    # TF 퍼블리시 주기
+    transform_publish_period: 0.02
+
+    # 지도 업데이트 간격 (초)
+    map_update_interval: 5.0
+
+    # TF 버퍼 (WSL2 환경 안정성)
+    tf_buffer_duration: 30.0
+    transform_timeout: 0.2
+
+    # 스택 사이즈 (WSL2 환경)
+    stack_size_to_use: 40000000
+
+    # RViz 인터랙티브 모드
+    enable_interactive_mode: true
+
+    # 모드: mapping (지도 생성)
+    mode: mapping
+
+    # 저장
+    map_file_name: ''
+    map_start_at_dock: false
