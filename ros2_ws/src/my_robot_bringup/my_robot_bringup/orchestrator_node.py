@@ -58,6 +58,7 @@ class RobotRecord:
         self.pose = None
         self.comm_lost = False
         self.battery_warned = False  # 배터리 경고 중복 방지
+        self.battery_critical_acted = False  # 배터리 위험 중복 방지
 
 
 class OrchestratorNode(Node):
@@ -234,10 +235,13 @@ class OrchestratorNode(Node):
 
     def _check_battery(self, rid: str, r: 'RobotRecord'):
         """배터리 수준 체크: 경고 → 자동 귀환."""
-        if r.battery <= self.BATTERY_CRITICAL and r.state != RobotStatus.STATE_RETURNING:
+        if (r.battery <= self.BATTERY_CRITICAL
+                and r.state != RobotStatus.STATE_RETURNING
+                and not r.battery_critical_acted):
+            r.battery_critical_acted = True
             self.get_logger().error(
                 f'BATTERY CRITICAL: {rid} at {r.battery:.0f}% — auto-return')
-            # 정지 명령 발행 (탐색 중단 유도)
+            # 정지 명령 1회 발행 (탐색 중단 유도)
             if rid not in self.robot_stop_pubs:
                 self.robot_stop_pubs[rid] = self.create_publisher(
                     Twist, f'/{rid}/cmd_vel', 10)
@@ -337,12 +341,16 @@ class OrchestratorNode(Node):
 
         elif self.stage == MissionState.STAGE_EXPLORING:
             # 모든 로봇이 탐색 완료 시 → RETURNING (귀환 단계)
-            all_complete = all(
-                r.current_mission == 'complete' or r.state == RobotStatus.STATE_IDLE
-                for r in self.robots.values()
-                if not r.comm_lost
+            # STATE_IDLE만으로 판단하면 탐색 시작 전 로봇이 '완료'로 오인됨
+            active_robots = [
+                r for r in self.robots.values()
+                if not r.comm_lost and r.last_seen > 0
+            ]
+            all_complete = (
+                len(active_robots) > 0
+                and all(r.current_mission == 'complete' for r in active_robots)
             )
-            if all_complete and any(r.last_seen > 0 for r in self.robots.values()):
+            if all_complete:
                 active = [r for r in self.robots.values() if not r.comm_lost]
                 if active:
                     self.stage = MissionState.STAGE_RETURNING

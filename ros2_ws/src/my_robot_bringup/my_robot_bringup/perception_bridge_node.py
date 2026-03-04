@@ -305,7 +305,7 @@ class PerceptionBridgeNode(Node):
         goal = NavigateToPose.Goal()
         goal.pose = PoseStamped()
         goal.pose.header.stamp = self.get_clock().now().to_msg()
-        goal.pose.header.frame_id = 'map'
+        goal.pose.header.frame_id = 'base_link'  # 좌표가 base_link 기준이므로 일치시킴
         goal.pose.pose = pose
 
         self.get_logger().info(

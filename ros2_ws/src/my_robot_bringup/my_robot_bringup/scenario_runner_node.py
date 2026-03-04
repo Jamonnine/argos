@@ -227,6 +227,7 @@ class ScenarioRunner(Node):
             wp.pose.position.x = wx
             wp.pose.position.y = wy
             wp.pose.position.z = wz
+            wp.pose.orientation.w = 1.0  # 유효한 단위 쿼터니언
             self.drone_wp_pub.publish(wp)
             self.get_logger().info(
                 f'  WP{i}: ({wx:.1f}, {wy:.1f}, {wz:.1f})')
