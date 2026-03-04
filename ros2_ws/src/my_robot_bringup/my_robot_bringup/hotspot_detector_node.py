@@ -57,6 +57,8 @@ class HotspotDetectorNode(Node):
         self.severity_thresholds = severity_list
 
         self.bridge = CvBridge()
+        self._last_publish_time = None
+        self._publish_cooldown = 1.0  # 초 — 화점 발행 최소 간격
 
         # --- QoS: 센서 데이터 (Best Effort, 최신 1개만) ---
         sensor_qos = QoSProfile(
@@ -122,6 +124,8 @@ class HotspotDetectorNode(Node):
         # 시각화 이미지 준비 (컬러맵 적용)
         viz_img = cv2.applyColorMap(cv_img, cv2.COLORMAP_INFERNO)
 
+        worst_det = None  # 프레임 내 최고온 화점만 발행 (플러딩 방지)
+
         for contour in contours:
             area = cv2.contourArea(contour)
             if area < self.min_area:
@@ -174,9 +178,11 @@ class HotspotDetectorNode(Node):
             det.severity = severity
             det.area_ratio = float(area) / float(total_pixels)
 
-            self.pub_detection.publish(det)
+            # 최고온 화점 추적
+            if worst_det is None or max_temp > worst_det.max_temperature_kelvin:
+                worst_det = det
 
-            # 시각화에 표시
+            # 시각화에 표시 (모든 화점)
             color = {
                 'low': (0, 255, 0),
                 'medium': (0, 255, 255),
@@ -188,6 +194,18 @@ class HotspotDetectorNode(Node):
             label = f'{max_temp-273.15:.0f}C [{severity}]'
             cv2.putText(viz_img, label, (x, y-5),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
+
+        # 프레임 내 최고온 화점 1개만 발행 (쿨다운 적용)
+        if worst_det is not None:
+            now = self.get_clock().now()
+            should_publish = (
+                self._last_publish_time is None
+                or (now - self._last_publish_time).nanoseconds / 1e9
+                >= self._publish_cooldown
+            )
+            if should_publish:
+                self.pub_detection.publish(worst_det)
+                self._last_publish_time = now
 
         # 시각화 이미지 발행
         try:

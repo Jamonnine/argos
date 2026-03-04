@@ -202,10 +202,15 @@ class ScenarioRunner(Node):
             return
         req = Trigger.Request()
         future = client.call_async(req)
-        future.add_done_callback(
-            lambda f: self.get_logger().info(
-                f'{name}: {f.result().message}'
-                if f.result() else f'{name}: call failed'))
+
+        def _on_result(f):
+            try:
+                result = f.result()
+                self.get_logger().info(f'{name}: {result.message}')
+            except Exception as e:
+                self.get_logger().error(f'{name}: service call failed: {e}')
+
+        future.add_done_callback(_on_result)
 
     def _send_drone_waypoints(self):
         """건물 상공 정찰 웨이포인트 (방 A → 방 B → 방 C → 중앙)."""

@@ -55,7 +55,7 @@ class PerceptionBridgeNode(Node):
         # ── 파라미터 ───────────────────────────────────────────────
         self.declare_parameter('detection_cache_size', 10)
         self.declare_parameter('default_approach_distance', 0.5)
-        self.declare_parameter('simulate_detections', True)
+        self.declare_parameter('simulate_detections', False)
 
         cache_size = self.get_parameter('detection_cache_size').value
         self._approach_dist = self.get_parameter('default_approach_distance').value
@@ -100,6 +100,9 @@ class PerceptionBridgeNode(Node):
             'navigate_to_pose',
             callback_group=self._cb_group,
         )
+        self._nav2_server_ready = False
+        self._server_check_timer = self.create_timer(
+            1.0, self._check_nav2_server)
 
         self.get_logger().info(
             'PerceptionBridgeNode 시작\n'
@@ -107,6 +110,17 @@ class PerceptionBridgeNode(Node):
             '  구독:   /detections\n'
             '  액션:   navigate_to_pose (Nav2)'
         )
+
+    # ──────────────────────────────────────────────────────────────
+    # Nav2 서버 비블로킹 체크
+    # ──────────────────────────────────────────────────────────────
+
+    def _check_nav2_server(self):
+        """Nav2 서버 준비 상태를 비블로킹으로 확인."""
+        if self._nav2_client.server_is_ready():
+            self._nav2_server_ready = True
+            self._server_check_timer.cancel()
+            self.get_logger().info('Nav2 서버 연결 완료')
 
     # ──────────────────────────────────────────────────────────────
     # 감지 결과 캐싱
@@ -170,9 +184,7 @@ class PerceptionBridgeNode(Node):
         arr.detections = [obj]
         arr.detector_name = 'lidar_simulator'
         self._detection_pub.publish(arr)
-
-        # 캐시에도 저장
-        self._detection_cache.append(obj)
+        # 캐시 저장은 _on_detections 콜백에서 처리 (이중 저장 방지)
 
     # ──────────────────────────────────────────────────────────────
     # Service Server: NavigateToObject 처리
@@ -285,9 +297,9 @@ class PerceptionBridgeNode(Node):
         return pose
 
     def _send_nav2_goal(self, pose: Pose):
-        """Nav2 NavigateToPose Action에 목표 전송."""
-        if not self._nav2_client.wait_for_server(timeout_sec=2.0):
-            self.get_logger().error('Nav2 NavigateToPose 서버 연결 실패!')
+        """Nav2 NavigateToPose Action에 목표 전송 (비블로킹)."""
+        if not self._nav2_server_ready:
+            self.get_logger().warn('Nav2 서버 미준비 — 목표 드롭')
             return
 
         goal = NavigateToPose.Goal()

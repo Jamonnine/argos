@@ -187,6 +187,7 @@ class OrchestratorNode(Node):
     def emergency_stop_callback(self, request, response):
         """긴급 정지 — 모든 로봇에 영속도 명령 + 귀환 전환."""
         self.stage = MissionState.STAGE_RETURNING
+        self.return_start_time = self.get_clock().now()
         self.paused = True
         # 모든 로봇에 정지 명령 (cmd_vel = 0) — 복사본 순회로 race condition 방지
         for rid in list(self.robots):

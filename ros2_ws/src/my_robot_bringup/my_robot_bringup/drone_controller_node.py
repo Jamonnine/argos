@@ -97,18 +97,24 @@ class DroneController(Node):
         self.current_pose = (p.x, p.y, p.z, yaw)
 
     def waypoint_callback(self, msg: PoseStamped):
-        """웨이포인트 수신. 비행 중이면 즉시 변경, 아니면 큐에 추가."""
+        """웨이포인트 수신 → 항상 큐에 추가, hovering이면 즉시 출발."""
         wp = (msg.pose.position.x, msg.pose.position.y,
               msg.pose.position.z if msg.pose.position.z > 0
               else self.cruise_alt)
 
-        if self.state in ('hovering', 'flying'):
-            self.target_waypoint = wp
+        self.waypoint_queue.append(wp)
+        self.get_logger().info(
+            f'Waypoint queued ({wp[0]:.1f}, {wp[1]:.1f}, {wp[2]:.1f}) '
+            f'— {len(self.waypoint_queue)} in queue')
+
+        # hovering 상태이고 현재 목표 없으면 즉시 출발
+        if self.state == 'hovering' and self.target_waypoint is None:
+            self.target_waypoint = self.waypoint_queue.pop(0)
             self.state = 'flying'
             self.get_logger().info(
-                f'Flying to ({wp[0]:.1f}, {wp[1]:.1f}, {wp[2]:.1f})')
-        else:
-            self.waypoint_queue.append(wp)
+                f'Flying to ({self.target_waypoint[0]:.1f}, '
+                f'{self.target_waypoint[1]:.1f}, '
+                f'{self.target_waypoint[2]:.1f})')
 
     def takeoff_callback(self, request, response):
         """이륙 서비스."""
