@@ -1,0 +1,299 @@
+<?xml version="1.0"?>
+<!--
+  ARGOS 소방 정찰 드론 (쿼드콥터)
+  ================================
+  Gazebo Harmonic 내장 플러그인 기반 (PX4/ArduPilot 불필요).
+  MulticopterMotorModel: 로터 추력 물리 시뮬레이션
+  MulticopterVelocityControl: cmd_vel(Twist) → 모터 속도 자동 계산
+
+  제어 인터페이스: cmd_vel (geometry_msgs/Twist via ros_gz_bridge)
+  - linear.x/y: 수평 이동 속도 (m/s, 바디 프레임)
+  - linear.z: 상승/하강 속도 (m/s)
+  - angular.z: 요(yaw) 회전 속도 (rad/s)
+
+  물리 파라미터: gz-sim8 공식 X3 UAV 예제 기반.
+-->
+<sdf version="1.9">
+  <model name="argos_drone">
+    <pose>0 0 0.1 0 0 0</pose>
+
+    <!-- ===== 동체 (base_link) ===== -->
+    <link name="base_link">
+      <inertial>
+        <mass>1.5</mass>
+        <inertia>
+          <ixx>0.0347563</ixx>
+          <iyy>0.0458929</iyy>
+          <izz>0.0977</izz>
+        </inertia>
+      </inertial>
+
+      <collision name="collision">
+        <geometry>
+          <box><size>0.47 0.47 0.11</size></box>
+        </geometry>
+      </collision>
+
+      <visual name="body_visual">
+        <geometry>
+          <box><size>0.47 0.47 0.11</size></box>
+        </geometry>
+        <material>
+          <ambient>0.8 0.2 0.0 1</ambient>
+          <diffuse>0.8 0.2 0.0 1</diffuse>
+        </material>
+      </visual>
+
+      <!-- 하방 카메라 (정찰용) -->
+      <sensor name="downward_camera" type="camera">
+        <pose>0 0 -0.06 0 1.5708 0</pose>
+        <always_on>true</always_on>
+        <update_rate>15</update_rate>
+        <camera>
+          <horizontal_fov>1.396</horizontal_fov>
+          <image>
+            <width>640</width>
+            <height>480</height>
+            <format>R8G8B8</format>
+          </image>
+          <clip>
+            <near>0.1</near>
+            <far>100</far>
+          </clip>
+        </camera>
+        <topic>camera/image_raw</topic>
+      </sensor>
+
+      <!-- IMU -->
+      <sensor name="imu" type="imu">
+        <always_on>true</always_on>
+        <update_rate>250</update_rate>
+        <topic>imu/data</topic>
+      </sensor>
+    </link>
+
+    <!-- ===== 로터 0 (전방 좌측, CCW) ===== -->
+    <link name="rotor_0">
+      <pose>0.174 -0.174 0.06 0 0 0</pose>
+      <inertial>
+        <mass>0.005</mass>
+        <inertia>
+          <ixx>9.75e-07</ixx>
+          <iyy>0.000273104</iyy>
+          <izz>0.000274004</izz>
+        </inertia>
+      </inertial>
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>https://fuel.gazebosim.org/1.0/openrobotics/models/X3 UAV/tip/files/meshes/iris_prop_ccw.dae</uri>
+          </mesh>
+        </geometry>
+      </visual>
+    </link>
+    <joint name="rotor_0_joint" type="revolute">
+      <child>rotor_0</child>
+      <parent>base_link</parent>
+      <axis><xyz>0 0 1</xyz></axis>
+    </joint>
+
+    <!-- ===== 로터 1 (후방 우측, CCW) ===== -->
+    <link name="rotor_1">
+      <pose>-0.174 0.174 0.06 0 0 0</pose>
+      <inertial>
+        <mass>0.005</mass>
+        <inertia>
+          <ixx>9.75e-07</ixx>
+          <iyy>0.000273104</iyy>
+          <izz>0.000274004</izz>
+        </inertia>
+      </inertial>
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>https://fuel.gazebosim.org/1.0/openrobotics/models/X3 UAV/tip/files/meshes/iris_prop_ccw.dae</uri>
+          </mesh>
+        </geometry>
+      </visual>
+    </link>
+    <joint name="rotor_1_joint" type="revolute">
+      <child>rotor_1</child>
+      <parent>base_link</parent>
+      <axis><xyz>0 0 1</xyz></axis>
+    </joint>
+
+    <!-- ===== 로터 2 (전방 우측, CW) ===== -->
+    <link name="rotor_2">
+      <pose>0.174 0.174 0.06 0 0 0</pose>
+      <inertial>
+        <mass>0.005</mass>
+        <inertia>
+          <ixx>9.75e-07</ixx>
+          <iyy>0.000273104</iyy>
+          <izz>0.000274004</izz>
+        </inertia>
+      </inertial>
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>https://fuel.gazebosim.org/1.0/openrobotics/models/X3 UAV/tip/files/meshes/iris_prop_cw.dae</uri>
+          </mesh>
+        </geometry>
+      </visual>
+    </link>
+    <joint name="rotor_2_joint" type="revolute">
+      <child>rotor_2</child>
+      <parent>base_link</parent>
+      <axis><xyz>0 0 1</xyz></axis>
+    </joint>
+
+    <!-- ===== 로터 3 (후방 좌측, CW) ===== -->
+    <link name="rotor_3">
+      <pose>-0.174 -0.174 0.06 0 0 0</pose>
+      <inertial>
+        <mass>0.005</mass>
+        <inertia>
+          <ixx>9.75e-07</ixx>
+          <iyy>0.000273104</iyy>
+          <izz>0.000274004</izz>
+        </inertia>
+      </inertial>
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>https://fuel.gazebosim.org/1.0/openrobotics/models/X3 UAV/tip/files/meshes/iris_prop_cw.dae</uri>
+          </mesh>
+        </geometry>
+      </visual>
+    </link>
+    <joint name="rotor_3_joint" type="revolute">
+      <child>rotor_3</child>
+      <parent>base_link</parent>
+      <axis><xyz>0 0 1</xyz></axis>
+    </joint>
+
+    <!-- ===== MulticopterMotorModel (로터별 추력 물리) ===== -->
+    <plugin filename="gz-sim-multicopter-motor-model-system"
+            name="gz::sim::systems::MulticopterMotorModel">
+      <jointName>rotor_0_joint</jointName>
+      <linkName>rotor_0</linkName>
+      <turningDirection>ccw</turningDirection>
+      <timeConstantUp>0.0125</timeConstantUp>
+      <timeConstantDown>0.025</timeConstantDown>
+      <maxRotVelocity>800.0</maxRotVelocity>
+      <motorConstant>8.54858e-06</motorConstant>
+      <momentConstant>0.016</momentConstant>
+      <commandSubTopic>gazebo/command/motor_speed</commandSubTopic>
+      <motorNumber>0</motorNumber>
+      <rotorDragCoefficient>8.06428e-05</rotorDragCoefficient>
+      <rollingMomentCoefficient>1e-06</rollingMomentCoefficient>
+      <rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim>
+      <motorType>velocity</motorType>
+    </plugin>
+
+    <plugin filename="gz-sim-multicopter-motor-model-system"
+            name="gz::sim::systems::MulticopterMotorModel">
+      <jointName>rotor_1_joint</jointName>
+      <linkName>rotor_1</linkName>
+      <turningDirection>ccw</turningDirection>
+      <timeConstantUp>0.0125</timeConstantUp>
+      <timeConstantDown>0.025</timeConstantDown>
+      <maxRotVelocity>800.0</maxRotVelocity>
+      <motorConstant>8.54858e-06</motorConstant>
+      <momentConstant>0.016</momentConstant>
+      <commandSubTopic>gazebo/command/motor_speed</commandSubTopic>
+      <motorNumber>1</motorNumber>
+      <rotorDragCoefficient>8.06428e-05</rotorDragCoefficient>
+      <rollingMomentCoefficient>1e-06</rollingMomentCoefficient>
+      <rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim>
+      <motorType>velocity</motorType>
+    </plugin>
+
+    <plugin filename="gz-sim-multicopter-motor-model-system"
+            name="gz::sim::systems::MulticopterMotorModel">
+      <jointName>rotor_2_joint</jointName>
+      <linkName>rotor_2</linkName>
+      <turningDirection>cw</turningDirection>
+      <timeConstantUp>0.0125</timeConstantUp>
+      <timeConstantDown>0.025</timeConstantDown>
+      <maxRotVelocity>800.0</maxRotVelocity>
+      <motorConstant>8.54858e-06</motorConstant>
+      <momentConstant>0.016</momentConstant>
+      <commandSubTopic>gazebo/command/motor_speed</commandSubTopic>
+      <motorNumber>2</motorNumber>
+      <rotorDragCoefficient>8.06428e-05</rotorDragCoefficient>
+      <rollingMomentCoefficient>1e-06</rollingMomentCoefficient>
+      <rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim>
+      <motorType>velocity</motorType>
+    </plugin>
+
+    <plugin filename="gz-sim-multicopter-motor-model-system"
+            name="gz::sim::systems::MulticopterMotorModel">
+      <jointName>rotor_3_joint</jointName>
+      <linkName>rotor_3</linkName>
+      <turningDirection>cw</turningDirection>
+      <timeConstantUp>0.0125</timeConstantUp>
+      <timeConstantDown>0.025</timeConstantDown>
+      <maxRotVelocity>800.0</maxRotVelocity>
+      <motorConstant>8.54858e-06</motorConstant>
+      <momentConstant>0.016</momentConstant>
+      <commandSubTopic>gazebo/command/motor_speed</commandSubTopic>
+      <motorNumber>3</motorNumber>
+      <rotorDragCoefficient>8.06428e-05</rotorDragCoefficient>
+      <rollingMomentCoefficient>1e-06</rollingMomentCoefficient>
+      <rotorVelocitySlowdownSim>10</rotorVelocitySlowdownSim>
+      <motorType>velocity</motorType>
+    </plugin>
+
+    <!-- ===== MulticopterVelocityControl (cmd_vel → 모터 속도) ===== -->
+    <plugin filename="gz-sim-multicopter-control-system"
+            name="gz::sim::systems::MulticopterVelocityControl">
+      <commandSubTopic>cmd_vel</commandSubTopic>
+      <enableSubTopic>enable</enableSubTopic>
+      <comLinkName>base_link</comLinkName>
+
+      <velocityGain>2.7 2.7 2.7</velocityGain>
+      <attitudeGain>2 3 0.15</attitudeGain>
+      <angularRateGain>0.4 0.52 0.18</angularRateGain>
+      <maximumLinearAcceleration>2 2 2</maximumLinearAcceleration>
+
+      <!-- 로터 배치 (X 형 쿼드콥터) -->
+      <rotorConfiguration>
+        <rotor>
+          <jointName>rotor_0_joint</jointName>
+          <forceConstant>8.54858e-06</forceConstant>
+          <momentConstant>0.016</momentConstant>
+          <direction>1</direction>
+        </rotor>
+        <rotor>
+          <jointName>rotor_1_joint</jointName>
+          <forceConstant>8.54858e-06</forceConstant>
+          <momentConstant>0.016</momentConstant>
+          <direction>1</direction>
+        </rotor>
+        <rotor>
+          <jointName>rotor_2_joint</jointName>
+          <forceConstant>8.54858e-06</forceConstant>
+          <momentConstant>0.016</momentConstant>
+          <direction>-1</direction>
+        </rotor>
+        <rotor>
+          <jointName>rotor_3_joint</jointName>
+          <forceConstant>8.54858e-06</forceConstant>
+          <momentConstant>0.016</momentConstant>
+          <direction>-1</direction>
+        </rotor>
+      </rotorConfiguration>
+    </plugin>
+
+    <!-- ===== Odometry (위치 추정) ===== -->
+    <plugin filename="gz-sim-odometry-publisher-system"
+            name="gz::sim::systems::OdometryPublisher">
+      <odom_frame>odom</odom_frame>
+      <robot_base_frame>base_link</robot_base_frame>
+      <odom_topic>odom</odom_topic>
+      <dimensions>3</dimensions>
+    </plugin>
+
+  </model>
+</sdf>

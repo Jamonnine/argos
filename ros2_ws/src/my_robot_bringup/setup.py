@@ -45,6 +45,7 @@ setup(
             'frontier_explorer = my_robot_bringup.frontier_explorer_node:main',
             'orchestrator = my_robot_bringup.orchestrator_node:main',
             'robot_status = my_robot_bringup.robot_status_node:main',
+            'drone_controller = my_robot_bringup.drone_controller_node:main',
         ],
     },
 )

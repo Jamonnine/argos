@@ -1,11 +1,11 @@
 """
-ARGOS 멀티로봇 자율 탐색 Launch
+ARGOS 이종 군집 자율 탐색 Launch
 ================================
-N대 UGV를 Gazebo에 스폰하고, 각 로봇에 독립적인
-Nav2 + SLAM + 프론티어 탐색 + 열화상 감지 스택을 구성.
+UGV N대 + 드론 M대를 Gazebo에 스폰하고, 각 로봇에 독립적인
+자율 탐색 스택을 구성. 오케스트레이터가 전체를 통합 지휘.
 
-각 로봇은 자체 네임스페이스에서 독립적으로 SLAM/Nav2를 수행하며,
-/exploration/targets 토픽으로 탐색 대상을 공유하여 중복 탐색을 방지.
+UGV: Nav2 + SLAM + 프론티어 탐색 + 열화상 감지
+드론: 웨이포인트 P 제어 + 하방 카메라 (MulticopterVelocityControl)
 
 사용법:
   ros2 launch argos_description exploration.launch.py
@@ -28,10 +28,15 @@ from launch_ros.parameter_descriptions import ParameterValue
 from ament_index_python.packages import get_package_share_directory
 
 
-# --- 로봇 설정 (multi_robot.launch.py와 동일) ---
+# --- UGV 설정 ---
 ROBOTS = [
     {'name': 'argos1', 'x': 3.0, 'y': 2.5, 'z': 0.3},
     {'name': 'argos2', 'x': 7.0, 'y': 2.5, 'z': 0.3},
+]
+
+# --- 드론 설정 ---
+DRONES = [
+    {'name': 'drone1', 'x': 5.0, 'y': 0.0, 'z': 0.2},
 ]
 
 
@@ -254,6 +259,104 @@ def exploration_robot_group(robot_config, pkg_dir, urdf_file, nav2_bringup_dir, 
     ]
 
 
+def drone_group(drone_config, pkg_dir):
+    """단일 드론: SDF 모델 스폰 + 브릿지 + P 제어기 + 상태 보고."""
+    name = drone_config['name']
+    x = str(drone_config['x'])
+    y = str(drone_config['y'])
+    z = str(drone_config['z'])
+
+    sdf_file = os.path.join(pkg_dir, 'models', 'argos_drone', 'model.sdf')
+
+    # --- Spawn Drone (SDF 직접 스폰) ---
+    spawn_drone = Node(
+        package='ros_gz_sim',
+        executable='create',
+        arguments=[
+            '-name', name,
+            '-file', sdf_file,
+            '-x', x, '-y', y, '-z', z,
+        ],
+        output='screen',
+    )
+
+    # --- Gazebo Bridge ---
+    # ROS→GZ: cmd_vel (MulticopterVelocityControl 입력)
+    # GZ→ROS: camera, IMU, odom
+    # robotNamespace 제거로 엔티티 이름(=name) 기반 자동 네임스페이스
+    gz_bridge = Node(
+        package='ros_gz_bridge',
+        executable='parameter_bridge',
+        name='gz_bridge',
+        namespace=name,
+        arguments=[
+            f'/{name}/cmd_vel@geometry_msgs/msg/Twist]gz.msgs.Twist',
+            f'/model/{name}/odometry@nav_msgs/msg/Odometry[gz.msgs.Odometry',
+            f'/{name}/camera/image_raw@sensor_msgs/msg/Image[gz.msgs.Image',
+            f'/{name}/imu/data@sensor_msgs/msg/Imu[gz.msgs.IMU',
+            '/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock',
+        ],
+        output='screen',
+    )
+
+    # --- Odom Relay: /model/{name}/odometry → /{name}/odom ---
+    odom_relay = Node(
+        package='topic_tools',
+        executable='relay',
+        name='odom_relay',
+        namespace=name,
+        arguments=[
+            f'/model/{name}/odometry',
+            f'/{name}/odom',
+        ],
+        parameters=[{'use_sim_time': True}],
+        output='screen',
+    )
+
+    # --- Drone Controller (10초 지연: Gazebo 스폰 대기) ---
+    drone_controller = TimerAction(
+        period=10.0,
+        actions=[
+            Node(
+                package='my_robot_bringup',
+                executable='drone_controller',
+                name='drone_controller',
+                namespace=name,
+                parameters=[{
+                    'use_sim_time': True,
+                    'cruise_altitude': 8.0,
+                    'max_horizontal_speed': 2.0,
+                    'max_vertical_speed': 1.0,
+                }],
+                output='screen',
+            ),
+        ],
+    )
+
+    # --- Robot Status Publisher (오케스트레이터에 드론 상태 보고) ---
+    robot_status_pub = Node(
+        package='my_robot_bringup',
+        executable='robot_status',
+        name='robot_status_publisher',
+        namespace=name,
+        parameters=[{
+            'use_sim_time': True,
+            'robot_id': name,
+            'robot_type': 'drone',
+            'capabilities': ['camera', 'imu'],
+        }],
+        output='screen',
+    )
+
+    return [
+        spawn_drone,
+        gz_bridge,
+        odom_relay,
+        drone_controller,
+        robot_status_pub,
+    ]
+
+
 def generate_launch_description():
     pkg_dir = get_package_share_directory('argos_description')
     nav2_bringup_dir = get_package_share_directory('nav2_bringup')
@@ -280,6 +383,7 @@ def generate_launch_description():
     )
 
     # --- 오케스트레이터 (중앙 지휘 — 20초 지연: 로봇 초기화 대기) ---
+    all_robot_names = [r['name'] for r in ROBOTS] + [d['name'] for d in DRONES]
     orchestrator = TimerAction(
         period=20.0,
         actions=[
@@ -289,20 +393,28 @@ def generate_launch_description():
                 name='orchestrator',
                 parameters=[{
                     'use_sim_time': True,
-                    'expected_robots': [r['name'] for r in ROBOTS],
+                    'expected_robots': all_robot_names,
                 }],
                 output='screen',
             ),
         ],
     )
 
-    # --- 각 로봇 전체 스택 ---
+    # --- 전체 엔티티 조립 ---
     all_entities = [world_arg, gazebo]
+
+    # UGV 스택
     for robot in ROBOTS:
         all_entities.extend(
             exploration_robot_group(
                 robot, pkg_dir, urdf_file, nav2_bringup_dir, nav2_params)
         )
+
+    # 드론 스택
+    for drone in DRONES:
+        all_entities.extend(
+            drone_group(drone, pkg_dir))
+
     all_entities.append(orchestrator)
 
     return LaunchDescription(all_entities)
