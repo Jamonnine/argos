@@ -116,6 +116,17 @@
 
   .drone-badge { color: var(--blue); }
   .ugv-badge { color: var(--green); }
+
+  /* Drone state badge in table */
+  .drone-state-badge {
+    padding: 2px 6px; border-radius: 10px; font-size: 10px;
+    display: inline-block; margin-left: 4px;
+  }
+  .drone-grounded { background: #444; }
+  .drone-taking_off { background: var(--blue); color: #000; }
+  .drone-hovering { background: var(--green); color: #000; }
+  .drone-flying { background: var(--orange); color: #000; }
+  .drone-landing { background: var(--highlight); }
 </style>
 </head>
 <body>
@@ -211,7 +222,9 @@ const STATE_CLASSES = ['state-idle', 'state-exploring', 'state-mission', 'state-
 // ─────────────── State ───────────────
 const robots = {};      // robot_id → latest RobotStatus
 const fireAlerts = [];  // list of FireAlert
+const droneStates = {}; // drone_id → state string (grounded/hovering/flying/landing)
 let missionState = null;
+const KNOWN_DRONES = ['drone1'];  // 구독할 드론 목록
 
 // ─────────────── ROS Connection ───────────────
 const ros = new ROSLIB.Ros({ url: WS_URL });
@@ -273,6 +286,19 @@ function subscribe() {
     updateFireLog();
   });
   activeSubscriptions.push(fireTopic);
+
+  // Drone State (per-drone, direct from drone_controller)
+  KNOWN_DRONES.forEach(droneId => {
+    const droneTopic = new ROSLIB.Topic({
+      ros, name: `/${droneId}/drone/state`,
+      messageType: 'std_msgs/String'
+    });
+    droneTopic.subscribe(msg => {
+      droneStates[droneId] = msg.data;
+      updateRobotTable();
+    });
+    activeSubscriptions.push(droneTopic);
+  });
 }
 
 // ─────────────── Service Calls ───────────────
@@ -329,17 +355,26 @@ function updateRobotTable() {
   tbody.innerHTML = '';
   for (const [id, r] of Object.entries(robots)) {
     const stateIdx = r.state || 0;
-    const typeBadge = r.robot_type === 'drone' ? 'drone-badge' : 'ugv-badge';
+    const isDrone = r.robot_type === 'drone';
+    const typeBadge = isDrone ? 'drone-badge' : 'ugv-badge';
     const p = r.pose && r.pose.pose && r.pose.pose.position;
+    // 드론은 고도(z) 포함
     const pos = p
-      ? `(${p.x.toFixed(1)}, ${p.y.toFixed(1)})`
+      ? (isDrone
+        ? `(${p.x.toFixed(1)}, ${p.y.toFixed(1)}, z=${p.z.toFixed(1)})`
+        : `(${p.x.toFixed(1)}, ${p.y.toFixed(1)})`)
       : '(?, ?)';
     const bat = r.battery_percent || 0;
     const batColor = bat > 50 ? 'var(--green)' : bat > 20 ? 'var(--orange)' : 'var(--highlight)';
+    // 드론 비행 상태 배지
+    const droneState = isDrone && droneStates[id] ? droneStates[id] : '';
+    const droneStateBadge = droneState
+      ? `<span class="drone-state-badge drone-${droneState}">${droneState.toUpperCase()}</span>`
+      : '';
     tbody.innerHTML += `<tr>
       <td><strong>${id}</strong></td>
       <td class="${typeBadge}">${(r.robot_type || 'ugv').toUpperCase()}</td>
-      <td><span class="state-badge ${STATE_CLASSES[stateIdx]}">${STATE_NAMES[stateIdx]}</span></td>
+      <td><span class="state-badge ${STATE_CLASSES[stateIdx]}">${STATE_NAMES[stateIdx]}</span>${droneStateBadge}</td>
       <td>${pos}</td>
       <td>${r.current_mission || '-'}</td>
       <td>
@@ -494,6 +529,15 @@ function drawMap() {
     ctx.font = 'bold 10px sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText(id, rx, ry - 12);
+
+    // 드론: 고도 + 비행 상태 표시
+    if (isDrone) {
+      const alt = r.pose.pose.position.z || 0;
+      const dState = droneStates[id] || '';
+      ctx.fillStyle = 'rgba(84, 160, 255, 0.8)';
+      ctx.font = '9px sans-serif';
+      ctx.fillText(`${alt.toFixed(1)}m ${dState}`, rx, ry + 16);
+    }
   }
 
   requestAnimationFrame(drawMap);

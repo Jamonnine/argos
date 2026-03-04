@@ -3,12 +3,15 @@ ARGOS Robot Status Publisher
 =============================
 개별 로봇의 상태를 수집하여 오케스트레이터에 주기적으로 보고.
 
-이 노드는 frontier_explorer, hotspot_detector 등의 하위 노드에서
-상태 정보를 수집하고, RobotStatus 메시지로 통합하여 발행한다.
+UGV와 드론 모두 지원:
+- UGV: TF2(map→base_footprint) 위치, exploration/status 상태, map 커버리지
+- 드론: odom 직접 구독 위치, drone/state 상태 (TF 미사용)
 
 토픽:
-  구독: exploration/status (String, from frontier_explorer)
+  구독: exploration/status (String, from frontier_explorer — UGV)
+        drone/state (String, from drone_controller — 드론)
         thermal/detections (ThermalDetection, from hotspot_detector)
+        odom (Odometry — 드론 위치 폴백)
   발행: /orchestrator/robot_status (RobotStatus)
         /orchestrator/fire_alert (FireAlert, 화점 감지 시)
 """
@@ -20,7 +23,7 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
 import numpy as np
 
 from std_msgs.msg import String
-from nav_msgs.msg import OccupancyGrid
+from nav_msgs.msg import OccupancyGrid, Odometry
 from geometry_msgs.msg import PoseStamped, PointStamped
 from my_robot_interfaces.msg import RobotStatus, FireAlert, ThermalDetection
 
@@ -51,8 +54,9 @@ class RobotStatusPublisher(Node):
         self.battery = 100.0
         self.battery_start_time = self.get_clock().now()
         self.coverage_percent = 0.0
+        self.odom_pose = None  # 드론 odom 폴백용
 
-        # --- TF2 ---
+        # --- TF2 (UGV 전용, 드론은 odom 직접 사용) ---
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
@@ -75,6 +79,15 @@ class RobotStatusPublisher(Node):
         self.map_sub = self.create_subscription(
             OccupancyGrid, 'map', self.map_callback, 10)
 
+        # 드론: drone/state 구독 + odom 직접 구독
+        if self.robot_type == 'drone':
+            self.drone_state_sub = self.create_subscription(
+                String, 'drone/state',
+                self.drone_state_callback, 10)
+            self.odom_sub = self.create_subscription(
+                Odometry, 'odom',
+                self.odom_callback, 10)
+
         # --- Publishers ---
         self.status_pub = self.create_publisher(
             RobotStatus, '/orchestrator/robot_status', 10)
@@ -91,6 +104,18 @@ class RobotStatusPublisher(Node):
 
     def exploration_status_callback(self, msg: String):
         self.exploration_status = msg.data
+
+    def drone_state_callback(self, msg: String):
+        """드론 상태 수신 (grounded/taking_off/hovering/flying/landing)."""
+        self.exploration_status = msg.data
+
+    def odom_callback(self, msg: Odometry):
+        """드론 odom → PoseStamped 변환 캐시."""
+        pose = PoseStamped()
+        pose.header = msg.header
+        pose.header.frame_id = 'odom'
+        pose.pose = msg.pose.pose
+        self.odom_pose = pose
 
     def map_callback(self, msg: OccupancyGrid):
         """맵 데이터로 탐색 커버리지 계산 (free / (free+unknown))."""
@@ -130,16 +155,23 @@ class RobotStatusPublisher(Node):
         msg.robot_id = self.robot_id
         msg.robot_type = self.robot_type
 
-        # 상태 매핑
+        # 상태 매핑 (UGV + 드론 공통)
         status_map = {
+            # UGV 상태
             'idle': RobotStatus.STATE_IDLE,
             'exploring': RobotStatus.STATE_EXPLORING,
             'navigating': RobotStatus.STATE_EXPLORING,
             'paused_thermal': RobotStatus.STATE_ON_MISSION,
             'complete': RobotStatus.STATE_IDLE,
+            # 드론 상태
+            'grounded': RobotStatus.STATE_IDLE,
+            'taking_off': RobotStatus.STATE_ON_MISSION,
+            'hovering': RobotStatus.STATE_EXPLORING,
+            'flying': RobotStatus.STATE_EXPLORING,
+            'landing': RobotStatus.STATE_ON_MISSION,
         }
         msg.state = status_map.get(
-            self.exploration_status, RobotStatus.STATE_EXPLORING)
+            self.exploration_status, RobotStatus.STATE_IDLE)
 
         # 위치
         pose = self._get_robot_pose()
@@ -157,7 +189,12 @@ class RobotStatusPublisher(Node):
         self.status_pub.publish(msg)
 
     def _get_robot_pose(self):
-        """TF2로 맵 내 로봇 위치 조회."""
+        """로봇 위치 조회. UGV: TF2(map→base_footprint), 드론: odom 직접 사용."""
+        # 드론은 SLAM을 사용하지 않으므로 odom 직접 사용
+        if self.robot_type == 'drone':
+            return self.odom_pose
+
+        # UGV: TF2 변환 (SLAM이 map 프레임 제공)
         try:
             t = self.tf_buffer.lookup_transform(
                 'map', 'base_footprint', rclpy.time.Time())

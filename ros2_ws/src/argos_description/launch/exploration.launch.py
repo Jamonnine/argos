@@ -151,7 +151,7 @@ def exploration_robot_group(robot_config, pkg_dir, urdf_file, nav2_bringup_dir, 
         output='screen',
     )
 
-    # --- Gazebo Bridge (per robot) ---
+    # --- Gazebo Bridge (per robot, /clock은 generate_launch_description에서 공통 처리) ---
     gz_bridge = Node(
         package='ros_gz_bridge',
         executable='parameter_bridge',
@@ -164,7 +164,6 @@ def exploration_robot_group(robot_config, pkg_dir, urdf_file, nav2_bringup_dir, 
             f'/{name}/depth_camera/points@sensor_msgs/msg/PointCloud2[gz.msgs.PointCloudPacked',
             f'/{name}/imu/data@sensor_msgs/msg/Imu[gz.msgs.IMU',
             f'/{name}/thermal/image_raw@sensor_msgs/msg/Image[gz.msgs.Image',
-            '/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock',
         ],
         output='screen',
     )
@@ -281,25 +280,38 @@ def drone_group(drone_config, pkg_dir):
     )
 
     # --- Gazebo Bridge ---
-    # ROS→GZ: cmd_vel (MulticopterVelocityControl 입력)
-    # GZ→ROS: camera, IMU, odom
-    # robotNamespace 제거로 엔티티 이름(=name) 기반 자동 네임스페이스
+    # ROS→GZ: cmd_vel via /model/ prefix (MulticopterVelocityControl 입력)
+    # GZ→ROS: odom via /model/ prefix, camera, IMU
     gz_bridge = Node(
         package='ros_gz_bridge',
         executable='parameter_bridge',
         name='gz_bridge',
         namespace=name,
         arguments=[
-            f'/{name}/cmd_vel@geometry_msgs/msg/Twist]gz.msgs.Twist',
+            f'/model/{name}/cmd_vel@geometry_msgs/msg/Twist]gz.msgs.Twist',
             f'/model/{name}/odometry@nav_msgs/msg/Odometry[gz.msgs.Odometry',
             f'/{name}/camera/image_raw@sensor_msgs/msg/Image[gz.msgs.Image',
             f'/{name}/imu/data@sensor_msgs/msg/Imu[gz.msgs.IMU',
-            '/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock',
         ],
         output='screen',
     )
 
-    # --- Odom Relay: /model/{name}/odometry → /{name}/odom ---
+    # --- Topic Relays ---
+    # cmd_vel: 드론 컨트롤러(/{name}/cmd_vel) → 브릿지(/model/{name}/cmd_vel)
+    cmd_vel_relay = Node(
+        package='topic_tools',
+        executable='relay',
+        name='cmd_vel_relay',
+        namespace=name,
+        arguments=[
+            f'/{name}/cmd_vel',
+            f'/model/{name}/cmd_vel',
+        ],
+        parameters=[{'use_sim_time': True}],
+        output='screen',
+    )
+
+    # odom: 브릿지(/model/{name}/odometry) → 드론 컨트롤러(/{name}/odom)
     odom_relay = Node(
         package='topic_tools',
         executable='relay',
@@ -351,6 +363,7 @@ def drone_group(drone_config, pkg_dir):
     return [
         spawn_drone,
         gz_bridge,
+        cmd_vel_relay,
         odom_relay,
         drone_controller,
         robot_status_pub,
@@ -400,8 +413,19 @@ def generate_launch_description():
         ],
     )
 
+    # --- 공통 /clock 브릿지 (1개만 필요) ---
+    clock_bridge = Node(
+        package='ros_gz_bridge',
+        executable='parameter_bridge',
+        name='clock_bridge',
+        arguments=[
+            '/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock',
+        ],
+        output='screen',
+    )
+
     # --- 전체 엔티티 조립 ---
-    all_entities = [world_arg, gazebo]
+    all_entities = [world_arg, gazebo, clock_bridge]
 
     # UGV 스택
     for robot in ROBOTS:

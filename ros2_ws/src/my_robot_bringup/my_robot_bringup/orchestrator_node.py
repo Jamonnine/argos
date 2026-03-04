@@ -24,7 +24,7 @@ ARGOS Orchestrator Node (MS-7)
           /orchestrator/set_stage (SetStage) — 임무 단계 전환
 """
 
-import time
+import math
 from collections import deque
 import rclpy
 from rclpy.node import Node
@@ -37,7 +37,7 @@ from rclpy.qos import (
 from rclpy.callback_groups import ReentrantCallbackGroup
 
 from std_srvs.srv import Trigger
-from geometry_msgs.msg import Point, Twist
+from geometry_msgs.msg import Point, Twist, PoseStamped
 from my_robot_interfaces.msg import RobotStatus, FireAlert, MissionState
 
 
@@ -82,6 +82,9 @@ class OrchestratorNode(Node):
         self.start_time = self.get_clock().now()
         self.paused = False
         self.robot_stop_pubs = {}  # emergency_stop용 cmd_vel 발행자
+        self.drone_wp_pubs = {}   # 드론 웨이포인트 발행자
+        self.primary_responder = None  # 화재 대응 주담당 로봇 ID
+        self.fire_response_target = None  # 대응 중인 화점 위치 (Point)
 
         # 예상 로봇 사전 등록
         for rid in expected:
@@ -159,18 +162,20 @@ class OrchestratorNode(Node):
         self._auto_stage_transition()
 
     def fire_alert_callback(self, msg: FireAlert):
-        """화점 감지 알림 처리."""
+        """화점 감지 알림 → 전술적 대응 실행."""
         self.fire_alerts.append(msg)
         temp_c = msg.max_temperature_kelvin - 273.15
+        fire_pt = msg.location.point
         self.get_logger().warn(
             f'FIRE ALERT from {msg.robot_id}: {msg.severity} '
-            f'({temp_c:.0f}C) at ({msg.location.point.x:.1f}, '
-            f'{msg.location.point.y:.1f})')
+            f'({temp_c:.0f}C) at ({fire_pt.x:.1f}, {fire_pt.y:.1f})')
 
-        # 화점 감지 시 FIRE_RESPONSE 단계로 전환
+        # 화점 감지 시 FIRE_RESPONSE 단계로 전환 + 전술 실행
         if self.stage == MissionState.STAGE_EXPLORING:
             self.stage = MissionState.STAGE_FIRE_RESPONSE
+            self.fire_response_target = fire_pt
             self.get_logger().warn('Stage → FIRE_RESPONSE')
+            self._execute_fire_response(fire_pt, msg.severity)
 
     def emergency_stop_callback(self, request, response):
         """긴급 정지 — 모든 로봇에 영속도 명령 + 귀환 전환."""
@@ -226,6 +231,56 @@ class OrchestratorNode(Node):
         if active_count > 0 and lost_count > active_count / 2:
             self.get_logger().error(
                 f'CRITICAL: {lost_count}/{active_count} robots comm lost')
+
+    def _execute_fire_response(self, fire_pt: Point, severity: str):
+        """화재 대응 전술 실행: 최근접 UGV 배정 + 드론 화점 상공 배치."""
+        # 1) 최근접 UGV 선정 (위치 보고가 있는 UGV 중)
+        best_ugv = None
+        best_dist = float('inf')
+        for rid, r in self.robots.items():
+            if r.robot_type != 'ugv' or r.comm_lost or r.pose is None:
+                continue
+            dx = r.pose.pose.position.x - fire_pt.x
+            dy = r.pose.pose.position.y - fire_pt.y
+            dist = math.hypot(dx, dy)
+            if dist < best_dist:
+                best_dist = dist
+                best_ugv = rid
+
+        if best_ugv:
+            self.primary_responder = best_ugv
+            self.get_logger().warn(
+                f'PRIMARY RESPONDER: {best_ugv} (dist={best_dist:.1f}m)')
+        else:
+            self.get_logger().warn('No UGV available for fire response')
+
+        # 2) 드론을 화점 상공으로 이동 (정찰 고도 유지)
+        for rid, r in self.robots.items():
+            if r.robot_type != 'drone' or r.comm_lost:
+                continue
+            topic = f'/{rid}/drone/waypoint'
+            if rid not in self.drone_wp_pubs:
+                self.drone_wp_pubs[rid] = self.create_publisher(
+                    PoseStamped, topic, 10)
+            wp = PoseStamped()
+            wp.header.stamp = self.get_clock().now().to_msg()
+            wp.header.frame_id = 'map'
+            wp.pose.position.x = fire_pt.x
+            wp.pose.position.y = fire_pt.y
+            wp.pose.position.z = 8.0  # 정찰 고도
+            self.drone_wp_pubs[rid].publish(wp)
+            self.get_logger().warn(
+                f'DRONE {rid} → fire location '
+                f'({fire_pt.x:.1f}, {fire_pt.y:.1f}, 8.0m)')
+
+        # 3) 심각도별 대응 수준 로깅
+        if severity == 'critical':
+            self.get_logger().error(
+                'CRITICAL FIRE — 즉시 진압 필요. '
+                '지휘관 주의 요청.')
+        else:
+            self.get_logger().warn(
+                f'Fire severity: {severity} — 감시 모드 유지')
 
     def _auto_stage_transition(self):
         """로봇 상태 기반 자동 단계 전환."""
