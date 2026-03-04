@@ -19,10 +19,15 @@ from launch.actions import (
     DeclareLaunchArgument,
     IncludeLaunchDescription,
     TimerAction,
+    LogInfo,
 )
-from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.launch_description_sources import (
+    PythonLaunchDescriptionSource,
+    AnyLaunchDescriptionSource,
+)
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
+from launch_ros.substitutions import FindPackageShare
 from ament_index_python.packages import get_package_share_directory
 
 
@@ -78,10 +83,35 @@ def generate_launch_description():
         ],
     )
 
+    # --- rosbridge WebSocket (웹 대시보드 자동 연결) ---
+    rosbridge_launch = PathJoinSubstitution([
+        FindPackageShare('rosbridge_server'),
+        'launch', 'rosbridge_websocket_launch.xml',
+    ])
+
+    rosbridge = IncludeLaunchDescription(
+        AnyLaunchDescriptionSource(rosbridge_launch),
+        launch_arguments={'port': '9090'}.items(),
+    )
+
+    web_dir = PathJoinSubstitution([
+        FindPackageShare('argos_description'), 'web',
+    ])
+
+    dashboard_info = LogInfo(msg=[
+        '\n', '=' * 55, '\n',
+        '  ARGOS Web Dashboard\n',
+        '  Open: cd ', web_dir, ' && python3 -m http.server 8080\n',
+        '  Then visit http://localhost:8080\n',
+        '=' * 55,
+    ])
+
     return LaunchDescription([
         simulate_fire_arg,
         fire_delay_arg,
         world_arg,
         exploration_stack,
         scenario_runner,
+        rosbridge,
+        dashboard_info,
     ])

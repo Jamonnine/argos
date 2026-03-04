@@ -162,6 +162,22 @@
 
   /* Reconnect counter */
   #reconnect-count { font-size: 10px; color: #888; margin-left: 8px; }
+
+  /* Robot detail popup */
+  #robot-popup {
+    display: none; position: absolute; background: var(--panel);
+    border: 1px solid var(--accent); border-radius: 8px; padding: 12px;
+    font-size: 12px; min-width: 200px; z-index: 100;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+  }
+  #robot-popup h3 { font-size: 14px; margin-bottom: 8px; color: var(--blue); }
+  #robot-popup .popup-row { display: flex; justify-content: space-between; padding: 2px 0; }
+  #robot-popup .popup-label { color: #888; }
+  #robot-popup .popup-close {
+    position: absolute; top: 6px; right: 10px; cursor: pointer;
+    color: #888; font-size: 16px;
+  }
+  #robot-popup .popup-close:hover { color: var(--highlight); }
 </style>
 </head>
 <body>
@@ -237,9 +253,10 @@
   </div>
 
   <!-- Map panel -->
-  <div class="panel">
+  <div class="panel" style="position:relative">
     <h2>Map View (10m x 8m)</h2>
     <canvas id="map-canvas"></canvas>
+    <div id="robot-popup"></div>
   </div>
 
   <!-- Robot status table -->
@@ -274,6 +291,9 @@ let missionState = null;
 let subscribedDrones = new Set();  // 동적으로 구독한 드론 목록
 let reconnectCount = 0;
 const stageHistory = [];  // [{stage, time}] — 단계 전환 기록
+const robotTrails = {};   // robot_id → [{x, y}] — 최근 위치 궤적
+const TRAIL_MAX = 60;     // 궤적 최대 포인트 수 (30초 분량 @2Hz)
+let selectedRobot = null; // 클릭된 로봇 ID
 
 // ─────────────── ROS Connection ───────────────
 const ros = new ROSLIB.Ros({ url: WS_URL });
@@ -323,6 +343,14 @@ function subscribe() {
   });
   statusTopic.subscribe(msg => {
     robots[msg.robot_id] = msg;
+    // 궤적 저장
+    const p = msg.pose && msg.pose.pose && msg.pose.pose.position;
+    if (p) {
+      if (!robotTrails[msg.robot_id]) robotTrails[msg.robot_id] = [];
+      const trail = robotTrails[msg.robot_id];
+      trail.push({x: p.x, y: p.y});
+      if (trail.length > TRAIL_MAX) trail.shift();
+    }
     updateRobotTable();
   });
   activeSubscriptions.push(statusTopic);
@@ -605,6 +633,23 @@ function drawMap() {
     ctx.fillText('FIRE', fx, fy - 12);
   });
 
+  // Robot trails (궤적 — 점점 투명해지는 선)
+  for (const [id, trail] of Object.entries(robotTrails)) {
+    if (trail.length < 2) continue;
+    const r = robots[id];
+    const isDrone = r && r.robot_type === 'drone';
+    const baseColor = isDrone ? '84,160,255' : '78,204,163';
+    for (let i = 1; i < trail.length; i++) {
+      const alpha = (i / trail.length) * 0.5;
+      ctx.strokeStyle = `rgba(${baseColor},${alpha})`;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(ox + trail[i-1].x * scale, oy + (MAP_H - trail[i-1].y) * scale);
+      ctx.lineTo(ox + trail[i].x * scale, oy + (MAP_H - trail[i].y) * scale);
+      ctx.stroke();
+    }
+  }
+
   // Robots
   for (const [id, r] of Object.entries(robots)) {
     if (!r.pose || !r.pose.pose || !r.pose.pose.position) continue;
@@ -668,9 +713,75 @@ function drawMap() {
     }
   }
 
+  // 선택된 로봇 하이라이트 링
+  if (selectedRobot && robots[selectedRobot]) {
+    const sr = robots[selectedRobot];
+    if (sr.pose && sr.pose.pose && sr.pose.pose.position) {
+      const srx = ox + sr.pose.pose.position.x * scale;
+      const sry = oy + (MAP_H - sr.pose.pose.position.y) * scale;
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(srx, sry, 14, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+
   requestAnimationFrame(drawMap);
 }
 drawMap();
+
+// ─────────────── Map Click Handler ───────────────
+canvas.addEventListener('click', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const cx = e.clientX - rect.left;
+  const cy = e.clientY - rect.top;
+  const w = canvas.width, h = canvas.height;
+  const sx = w / MAP_W, sy = h / MAP_H;
+  const s = Math.min(sx, sy);
+  const ox = (w - MAP_W * s) / 2;
+  const oy = (h - MAP_H * s) / 2;
+
+  let closest = null, closestDist = 20; // 20px 클릭 반경
+  for (const [id, r] of Object.entries(robots)) {
+    if (!r.pose || !r.pose.pose || !r.pose.pose.position) continue;
+    const rx = ox + r.pose.pose.position.x * s;
+    const ry = oy + (MAP_H - r.pose.pose.position.y) * s;
+    const d = Math.hypot(cx - rx, cy - ry);
+    if (d < closestDist) { closest = id; closestDist = d; }
+  }
+
+  const popup = document.getElementById('robot-popup');
+  if (closest) {
+    selectedRobot = closest;
+    const r = robots[closest];
+    const p = r.pose && r.pose.pose && r.pose.pose.position;
+    const bat = (r.battery_percent || 0).toFixed(1);
+    const isDrone = r.robot_type === 'drone';
+    const dState = isDrone ? (droneStates[closest] || '-') : '-';
+    popup.innerHTML = `
+      <span class="popup-close" onclick="document.getElementById('robot-popup').style.display='none';selectedRobot=null">&times;</span>
+      <h3>${closest}</h3>
+      <div class="popup-row"><span class="popup-label">Type</span><span>${(r.robot_type||'ugv').toUpperCase()}</span></div>
+      <div class="popup-row"><span class="popup-label">State</span><span>${STATE_NAMES[r.state||0]}</span></div>
+      ${isDrone ? `<div class="popup-row"><span class="popup-label">Flight</span><span>${dState}</span></div>` : ''}
+      <div class="popup-row"><span class="popup-label">Position</span><span>${p?`(${p.x.toFixed(2)}, ${p.y.toFixed(2)}${isDrone?`, z=${p.z.toFixed(2)}`:''})`:'?'}</span></div>
+      <div class="popup-row"><span class="popup-label">Battery</span><span>${bat}%</span></div>
+      <div class="popup-row"><span class="popup-label">Mission</span><span>${r.current_mission||'-'}</span></div>
+      <div class="popup-row"><span class="popup-label">Progress</span><span>${((r.mission_progress||0)*100).toFixed(1)}%</span></div>
+      <div class="popup-row"><span class="popup-label">Frontiers</span><span>${r.frontiers_remaining||0}</span></div>
+      <div class="popup-row"><span class="popup-label">Nav Errors</span><span>${r.nav_error_count||0}</span></div>
+      <div class="popup-row"><span class="popup-label">Coverage</span><span>${(r.coverage_percent||0).toFixed(1)}%</span></div>
+    `;
+    // 팝업 위치: 클릭 위치 근처
+    popup.style.left = Math.min(e.offsetX + 10, canvas.width - 220) + 'px';
+    popup.style.top = Math.min(e.offsetY + 10, canvas.height - 200) + 'px';
+    popup.style.display = 'block';
+  } else {
+    popup.style.display = 'none';
+    selectedRobot = null;
+  }
+});
 </script>
 </body>
 </html>
