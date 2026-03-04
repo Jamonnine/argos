@@ -60,6 +60,7 @@ class RobotStatusPublisher(Node):
         self.coverage_percent = 0.0
         self.odom_pose = None  # 드론 odom 폴백용
         self.frontiers_remaining = 0
+        self.nav_error_count = 0
 
         # --- TF2 (UGV 전용, 드론은 odom 직접 사용) ---
         self.tf_buffer = Buffer()
@@ -84,10 +85,13 @@ class RobotStatusPublisher(Node):
         self.map_sub = self.create_subscription(
             OccupancyGrid, 'map', self.map_callback, 10)
 
-        # UGV: frontier_explorer에서 프론티어 수 수신
+        # UGV: frontier_explorer에서 탐색 통계 수신
         self.frontier_count_sub = self.create_subscription(
             UInt32, 'exploration/frontier_count',
             self.frontier_count_callback, 10)
+        self.nav_error_sub = self.create_subscription(
+            UInt32, 'exploration/nav_error_count',
+            self.nav_error_callback, 10)
 
         # 드론: drone/state 구독 + odom 직접 구독
         if self.robot_type == 'drone':
@@ -118,6 +122,10 @@ class RobotStatusPublisher(Node):
     def frontier_count_callback(self, msg: UInt32):
         """프론티어 탐색기에서 남은 프론티어 수 수신."""
         self.frontiers_remaining = msg.data
+
+    def nav_error_callback(self, msg: UInt32):
+        """Nav2 실패 횟수 수신."""
+        self.nav_error_count = msg.data
 
     def drone_state_callback(self, msg: String):
         """드론 상태 수신 (grounded/taking_off/hovering/flying/landing)."""
@@ -200,6 +208,7 @@ class RobotStatusPublisher(Node):
         msg.coverage_percent = self.coverage_percent
         msg.frontiers_remaining = self.frontiers_remaining
         msg.mission_progress = min(self.coverage_percent / 100.0, 1.0)
+        msg.nav_error_count = self.nav_error_count
         msg.capabilities = self.capabilities
 
         self.status_pub.publish(msg)

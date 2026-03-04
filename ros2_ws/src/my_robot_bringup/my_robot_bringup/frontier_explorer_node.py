@@ -99,6 +99,7 @@ class FrontierExplorer(Node):
         self.nav_server_ready = False   # Nav2 서버 가용 플래그
         self._nav_lock = threading.Lock()  # navigating 상태 보호
         self._goal_cancelled = False   # 열화상 등으로 의도적 취소 시 블랙리스트 방지
+        self.nav_error_count = 0       # Nav2 실패 횟수 추적
 
         # --- TF2 (로봇 위치 조회) ---
         self.tf_buffer = Buffer()
@@ -142,6 +143,8 @@ class FrontierExplorer(Node):
             MarkerArray, 'exploration/frontiers_viz', 10)
         self.frontier_count_pub = self.create_publisher(
             UInt32, 'exploration/frontier_count', 10)
+        self.nav_error_pub = self.create_publisher(
+            UInt32, 'exploration/nav_error_count', 10)
 
         # --- Services ---
         self.resume_srv = self.create_service(
@@ -387,9 +390,13 @@ class FrontierExplorer(Node):
                     f'Goal cancelled (will retry on resume)')
                 self._goal_cancelled = False
             else:
+                self.nav_error_count += 1
                 self.get_logger().warn(
-                    f'Nav failed (status={result.status}) — blacklisting')
+                    f'Nav failed (status={result.status}) — blacklisting '
+                    f'(errors: {self.nav_error_count})')
                 self.blacklisted.append(self.current_goal)
+                self.nav_error_pub.publish(
+                    UInt32(data=self.nav_error_count))
 
             self.current_goal = None
             self.navigating = False

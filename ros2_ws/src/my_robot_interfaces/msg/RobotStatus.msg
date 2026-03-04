@@ -31,5 +31,8 @@ float32 mission_progress                # 0.0 ~ 1.0
 uint32 frontiers_remaining              # 남은 프론티어 수
 float32 coverage_percent                # 탐색 커버리지 (추정)
 
+# 오류 추적
+uint32 nav_error_count                  # Nav2 네비게이션 실패 횟수
+
 # 능력 (로봇 타입별 다름)
 string[] capabilities                   # ["thermal", "lidar", "depth", "gripper"]

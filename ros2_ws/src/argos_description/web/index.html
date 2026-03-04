@@ -577,6 +577,21 @@ function drawMap() {
     }
   }
 
+  // HUD overlay (상단 좌측)
+  if (missionState) {
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(4, 4, 140, 48);
+    ctx.fillStyle = '#fff';
+    ctx.font = '11px sans-serif';
+    ctx.textAlign = 'left';
+    const cov = (missionState.overall_coverage_percent || 0).toFixed(1);
+    const fires = missionState.fire_count || 0;
+    const stg = STAGE_NAMES[missionState.stage || 0];
+    ctx.fillText(`Stage: ${stg}`, 8, 18);
+    ctx.fillText(`Coverage: ${cov}%`, 8, 32);
+    ctx.fillText(`Fires: ${fires}`, 8, 46);
+  }
+
   requestAnimationFrame(drawMap);
 }
 drawMap();
