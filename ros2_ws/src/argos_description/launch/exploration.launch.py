@@ -28,7 +28,7 @@ from launch_ros.parameter_descriptions import ParameterValue
 from ament_index_python.packages import get_package_share_directory
 
 
-# --- UGV 설정 ---
+# --- UGV 설정 (multi_robot.launch.py와 동일하게 유지할 것) ---
 ROBOTS = [
     {'name': 'argos1', 'x': 3.0, 'y': 2.5, 'z': 0.3},
     {'name': 'argos2', 'x': 7.0, 'y': 2.5, 'z': 0.3},
@@ -160,7 +160,9 @@ def exploration_robot_group(robot_config, pkg_dir, urdf_file, nav2_bringup_dir, 
         arguments=[
             f'/{name}/scan@sensor_msgs/msg/LaserScan[gz.msgs.LaserScan',
             f'/{name}/camera/image_raw@sensor_msgs/msg/Image[gz.msgs.Image',
+            f'/{name}/camera/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo',
             f'/{name}/depth_camera/depth_image@sensor_msgs/msg/Image[gz.msgs.Image',
+            f'/{name}/depth_camera/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo',
             f'/{name}/depth_camera/points@sensor_msgs/msg/PointCloud2[gz.msgs.PointCloudPacked',
             f'/{name}/imu/data@sensor_msgs/msg/Imu[gz.msgs.IMU',
             f'/{name}/thermal/image_raw@sensor_msgs/msg/Image[gz.msgs.Image',

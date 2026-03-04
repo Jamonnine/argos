@@ -228,6 +228,8 @@ class ScenarioRunner(Node):
 
     def _simulate_fire(self):
         """가짜 화재 감지 메시지를 UGV 열화상 토픽에 발행."""
+        if not self.simulate_fire:
+            return
         det = ThermalDetection()
         det.header.stamp = self.get_clock().now().to_msg()
         det.header.frame_id = 'thermal_camera_optical_link'

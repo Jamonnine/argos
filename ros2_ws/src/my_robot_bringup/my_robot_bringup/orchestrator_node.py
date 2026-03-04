@@ -84,6 +84,7 @@ class OrchestratorNode(Node):
         self.drone_wp_pubs = {}   # 드론 웨이포인트 발행자
         self.primary_responder = None  # 화재 대응 주담당 로봇 ID
         self.fire_response_target = None  # 대응 중인 화점 위치 (Point)
+        self.return_start_time = None  # RETURNING 단계 시작 시각
 
         # 예상 로봇 사전 등록
         for rid in expected:
@@ -180,8 +181,8 @@ class OrchestratorNode(Node):
         """긴급 정지 — 모든 로봇에 영속도 명령 + 귀환 전환."""
         self.stage = MissionState.STAGE_RETURNING
         self.paused = True
-        # 모든 로봇에 정지 명령 (cmd_vel = 0)
-        for rid in self.robots:
+        # 모든 로봇에 정지 명령 (cmd_vel = 0) — 복사본 순회로 race condition 방지
+        for rid in list(self.robots):
             if rid not in self.robot_stop_pubs:
                 self.robot_stop_pubs[rid] = self.create_publisher(
                     Twist, f'/{rid}/cmd_vel', 10)
@@ -236,7 +237,7 @@ class OrchestratorNode(Node):
         # 1) 최근접 UGV 선정 (위치 보고가 있는 UGV 중)
         best_ugv = None
         best_dist = float('inf')
-        for rid, r in self.robots.items():
+        for rid, r in list(self.robots.items()):
             if r.robot_type != 'ugv' or r.comm_lost or r.pose is None:
                 continue
             dx = r.pose.pose.position.x - fire_pt.x
@@ -254,7 +255,7 @@ class OrchestratorNode(Node):
             self.get_logger().warn('No UGV available for fire response')
 
         # 2) 드론을 화점 상공으로 이동 (정찰 고도 유지)
-        for rid, r in self.robots.items():
+        for rid, r in list(self.robots.items()):
             if r.robot_type != 'drone' or r.comm_lost:
                 continue
             topic = f'/{rid}/drone/waypoint'
@@ -294,7 +295,7 @@ class OrchestratorNode(Node):
                     f'Stage → EXPLORING')
 
         elif self.stage == MissionState.STAGE_EXPLORING:
-            # 모든 로봇이 탐색 완료 시 → COMPLETE
+            # 모든 로봇이 탐색 완료 시 → RETURNING (귀환 단계)
             all_complete = all(
                 r.current_mission == 'complete' or r.state == RobotStatus.STATE_IDLE
                 for r in self.robots.values()
@@ -303,8 +304,23 @@ class OrchestratorNode(Node):
             if all_complete and any(r.last_seen > 0 for r in self.robots.values()):
                 active = [r for r in self.robots.values() if not r.comm_lost]
                 if active:
-                    self.stage = MissionState.STAGE_COMPLETE
-                    self.get_logger().info('All exploration complete — Stage → COMPLETE')
+                    self.stage = MissionState.STAGE_RETURNING
+                    self.return_start_time = self.get_clock().now()
+                    self.get_logger().info(
+                        'All exploration complete — Stage → RETURNING')
+
+        elif self.stage == MissionState.STAGE_RETURNING:
+            # 귀환 단계: 모든 로봇 IDLE이면 → COMPLETE
+            all_idle = all(
+                r.state == RobotStatus.STATE_IDLE
+                for r in self.robots.values()
+                if not r.comm_lost
+            )
+            # 15초 경과 또는 모두 IDLE이면 COMPLETE
+            elapsed = (self.get_clock().now() - self.return_start_time).nanoseconds / 1e9
+            if all_idle or elapsed > 15.0:
+                self.stage = MissionState.STAGE_COMPLETE
+                self.get_logger().info('All robots returned — Stage → COMPLETE')
 
         elif self.stage == MissionState.STAGE_FIRE_RESPONSE:
             # 모든 화점이 비활성(진화/오탐) → 탐색 재개
@@ -346,6 +362,9 @@ class OrchestratorNode(Node):
         msg.robot_ids = list(self.robots.keys())
         msg.robot_states = [r.state for r in self.robots.values()]
         msg.robot_missions = [r.current_mission for r in self.robots.values()]
+
+        # 화재 대응 주담당
+        msg.primary_responder = self.primary_responder or ''
 
         # 경과 시간
         elapsed = self.get_clock().now() - self.start_time

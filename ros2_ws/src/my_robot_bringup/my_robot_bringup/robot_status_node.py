@@ -24,7 +24,7 @@ import numpy as np
 
 from std_msgs.msg import String, UInt32
 from nav_msgs.msg import OccupancyGrid, Odometry
-from geometry_msgs.msg import PoseStamped, PointStamped
+from geometry_msgs.msg import PoseStamped
 from my_robot_interfaces.msg import RobotStatus, FireAlert, ThermalDetection
 
 from tf2_ros import Buffer, TransformListener
@@ -42,12 +42,16 @@ class RobotStatusPublisher(Node):
         self.declare_parameter('robot_type', 'ugv')
         self.declare_parameter('capabilities', ['thermal', 'lidar', 'depth', 'imu'])
         self.declare_parameter('battery_drain_rate', 0.02)  # %/초 (시뮬레이션 감쇠)
+        self.declare_parameter('map_frame', 'map')
+        self.declare_parameter('base_frame', 'base_footprint')
         self.declare_parameter('use_sim_time', True)
 
         self.robot_id = self.get_parameter('robot_id').value
         self.robot_type = self.get_parameter('robot_type').value
         self.capabilities = self.get_parameter('capabilities').value
         self.drain_rate = self.get_parameter('battery_drain_rate').value
+        self.map_frame = self.get_parameter('map_frame').value
+        self.base_frame = self.get_parameter('base_frame').value
 
         # --- State ---
         self.exploration_status = 'idle'
@@ -209,7 +213,7 @@ class RobotStatusPublisher(Node):
         # UGV: TF2 변환 (SLAM이 map 프레임 제공)
         try:
             t = self.tf_buffer.lookup_transform(
-                'map', 'base_footprint', rclpy.time.Time())
+                self.map_frame, self.base_frame, rclpy.time.Time())
             pose = PoseStamped()
             pose.header = t.header
             pose.pose.position.x = t.transform.translation.x

@@ -122,6 +122,15 @@
     padding: 2px 6px; border-radius: 10px; font-size: 10px;
     display: inline-block; margin-left: 4px;
   }
+  /* Progress bar */
+  .progress-bar {
+    display: inline-block; width: 40px; height: 12px;
+    background: #333; border-radius: 3px; overflow: hidden; vertical-align: middle;
+  }
+  .progress-fill {
+    height: 100%; border-radius: 3px; background: var(--blue); transition: width 0.5s;
+  }
+
   .drone-grounded { background: #444; }
   .drone-taking_off { background: var(--blue); color: #000; }
   .drone-hovering { background: var(--green); color: #000; }
@@ -154,12 +163,20 @@
         <div class="value" id="coverage">0%</div>
       </div>
       <div class="field">
-        <div class="label">Robots</div>
+        <div class="label">Robots (Active / Total)</div>
         <div class="value" id="robot-count">0 / 0</div>
+      </div>
+      <div class="field">
+        <div class="label">Comm Lost</div>
+        <div class="value" id="comm-lost" style="color:var(--orange)">0</div>
       </div>
       <div class="field">
         <div class="label">Fires</div>
         <div class="value" id="fire-count" style="color:var(--highlight)">0</div>
+      </div>
+      <div class="field">
+        <div class="label">Primary Responder</div>
+        <div class="value" id="primary-responder" style="font-size:14px">-</div>
       </div>
     </div>
 
@@ -202,7 +219,7 @@
       <thead>
         <tr>
           <th>Robot</th><th>Type</th><th>State</th>
-          <th>Position</th><th>Mission</th><th>Battery</th>
+          <th>Position</th><th>Mission</th><th>Progress</th><th>Battery</th>
         </tr>
       </thead>
       <tbody id="robot-tbody"></tbody>
@@ -224,7 +241,7 @@ const robots = {};      // robot_id → latest RobotStatus
 const fireAlerts = [];  // list of FireAlert
 const droneStates = {}; // drone_id → state string (grounded/hovering/flying/landing)
 let missionState = null;
-const KNOWN_DRONES = ['drone1'];  // 구독할 드론 목록
+let subscribedDrones = new Set();  // 동적으로 구독한 드론 목록
 
 // ─────────────── ROS Connection ───────────────
 const ros = new ROSLIB.Ros({ url: WS_URL });
@@ -287,18 +304,21 @@ function subscribe() {
   });
   activeSubscriptions.push(fireTopic);
 
-  // Drone State (per-drone, direct from drone_controller)
-  KNOWN_DRONES.forEach(droneId => {
-    const droneTopic = new ROSLIB.Topic({
-      ros, name: `/${droneId}/drone/state`,
-      messageType: 'std_msgs/String'
-    });
-    droneTopic.subscribe(msg => {
-      droneStates[droneId] = msg.data;
-      updateRobotTable();
-    });
-    activeSubscriptions.push(droneTopic);
+}
+
+// 드론 상태 동적 구독 (MissionState의 robot_ids에서 드론 감지 시 자동 구독)
+function subscribeDroneState(droneId) {
+  if (subscribedDrones.has(droneId)) return;
+  subscribedDrones.add(droneId);
+  const droneTopic = new ROSLIB.Topic({
+    ros, name: `/${droneId}/drone/state`,
+    messageType: 'std_msgs/String'
   });
+  droneTopic.subscribe(msg => {
+    droneStates[droneId] = msg.data;
+    updateRobotTable();
+  });
+  activeSubscriptions.push(droneTopic);
 }
 
 // ─────────────── Service Calls ───────────────
@@ -346,8 +366,17 @@ function updateMissionPanel(m) {
     (m.overall_coverage_percent || 0).toFixed(1) + '%';
   document.getElementById('robot-count').textContent =
     `${m.active_robots || 0} / ${m.total_robots || 0}`;
+  document.getElementById('comm-lost').textContent =
+    m.comm_lost_robots || 0;
   document.getElementById('fire-count').textContent =
     m.fire_count || 0;
+  document.getElementById('primary-responder').textContent =
+    m.primary_responder || '-';
+
+  // 동적 드론 감지: robot_type이 'drone'인 로봇 자동 구독
+  for (const [id, r] of Object.entries(robots)) {
+    if (r.robot_type === 'drone') subscribeDroneState(id);
+  }
 }
 
 function updateRobotTable() {
@@ -371,12 +400,16 @@ function updateRobotTable() {
     const droneStateBadge = droneState
       ? `<span class="drone-state-badge drone-${droneState}">${droneState.toUpperCase()}</span>`
       : '';
+    const progress = ((r.mission_progress || 0) * 100).toFixed(0);
+    const frontiers = r.frontiers_remaining || 0;
+    const progressLabel = isDrone ? '-' : `${progress}% (${frontiers})`;
     tbody.innerHTML += `<tr>
       <td><strong>${id}</strong></td>
       <td class="${typeBadge}">${(r.robot_type || 'ugv').toUpperCase()}</td>
       <td><span class="state-badge ${STATE_CLASSES[stateIdx]}">${STATE_NAMES[stateIdx]}</span>${droneStateBadge}</td>
       <td>${pos}</td>
       <td>${r.current_mission || '-'}</td>
+      <td>${isDrone ? '-' : `<span class="progress-bar"><span class="progress-fill" style="width:${progress}%"></span></span> ${progressLabel}`}</td>
       <td>
         <span class="battery-bar"><span class="battery-fill" style="width:${bat}%;background:${batColor}"></span></span>
         ${bat.toFixed(0)}%

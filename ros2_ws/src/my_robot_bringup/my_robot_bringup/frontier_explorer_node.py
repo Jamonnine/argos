@@ -39,6 +39,7 @@ Nav2 NavigateToPose 액션으로 자율 탐색을 수행한다.
 
 import math
 import threading
+from collections import deque
 import numpy as np
 import cv2
 
@@ -72,6 +73,8 @@ class FrontierExplorer(Node):
         self.declare_parameter('exploration_rate', 1.0)
         self.declare_parameter('robot_name', '')
         self.declare_parameter('thermal_pause', True)
+        self.declare_parameter('map_frame', 'map')
+        self.declare_parameter('base_frame', 'base_footprint')
         self.declare_parameter('use_sim_time', True)
 
         self.min_frontier_size = self.get_parameter('min_frontier_size').value
@@ -79,11 +82,13 @@ class FrontierExplorer(Node):
         self.blacklist_radius = self.get_parameter('blacklist_radius').value
         exploration_rate = self.get_parameter('exploration_rate').value
         self.robot_name = self.get_parameter('robot_name').value
+        self.map_frame = self.get_parameter('map_frame').value
+        self.base_frame = self.get_parameter('base_frame').value
         thermal_pause_enabled = self.get_parameter('thermal_pause').value
 
         # --- State ---
         self.current_map = None
-        self.blacklisted = []           # [(x, y), ...] 방문/실패 프론티어
+        self.blacklisted = deque(maxlen=200)  # [(x, y), ...] 방문/실패 프론티어
         self.other_targets = {}         # {robot_name: (x, y)}
         self.current_goal = None        # (x, y)
         self.navigating = False
@@ -326,7 +331,7 @@ class FrontierExplorer(Node):
             self.navigating = True
 
         goal_msg = NavigateToPose.Goal()
-        goal_msg.pose.header.frame_id = 'map'
+        goal_msg.pose.header.frame_id = self.map_frame
         goal_msg.pose.header.stamp = self.get_clock().now().to_msg()
         goal_msg.pose.pose.position.x = tx
         goal_msg.pose.pose.position.y = ty
@@ -396,7 +401,7 @@ class FrontierExplorer(Node):
         """TF2로 로봇의 map 프레임 내 위치 조회."""
         try:
             t = self.tf_buffer.lookup_transform(
-                'map', 'base_footprint', rclpy.time.Time())
+                self.map_frame, self.base_frame, rclpy.time.Time())
             return (t.transform.translation.x, t.transform.translation.y)
         except Exception:
             return None
@@ -422,7 +427,7 @@ class FrontierExplorer(Node):
 
         for i, (fx, fy, size) in enumerate(frontiers):
             m = Marker()
-            m.header.frame_id = 'map'
+            m.header.frame_id = self.map_frame
             m.header.stamp = self.get_clock().now().to_msg()
             m.ns = 'frontiers'
             m.id = i + 1
@@ -441,7 +446,7 @@ class FrontierExplorer(Node):
 
         if self.current_goal:
             m = Marker()
-            m.header.frame_id = 'map'
+            m.header.frame_id = self.map_frame
             m.header.stamp = self.get_clock().now().to_msg()
             m.ns = 'current_target'
             m.id = 0
@@ -472,6 +477,10 @@ def main(args=None):
     except KeyboardInterrupt:
         pass
     finally:
+        # 진행 중인 Nav2 goal 취소 (graceful shutdown)
+        if node.nav_goal_handle is not None:
+            node.get_logger().info('Cancelling active Nav2 goal...')
+            node.nav_goal_handle.cancel_goal_async()
         node.destroy_node()
         rclpy.shutdown()
 

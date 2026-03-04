@@ -28,5 +28,8 @@ string[] robot_ids
 uint8[] robot_states
 string[] robot_missions
 
+# 화재 대응
+string primary_responder              # 화재 대응 주담당 로봇 ID (없으면 빈 문자열)
+
 # 경과 시간
 float64 elapsed_sec

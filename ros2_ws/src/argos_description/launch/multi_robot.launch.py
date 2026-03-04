@@ -29,7 +29,7 @@ from launch_ros.parameter_descriptions import ParameterValue
 from ament_index_python.packages import get_package_share_directory
 
 
-# --- 로봇 설정 (여기서 로봇 수·위치·이름 관리) ---
+# --- 로봇 설정 (exploration.launch.py와 동일하게 유지할 것) ---
 ROBOTS = [
     {'name': 'argos1', 'x': 3.0, 'y': 2.5, 'z': 0.3},
     {'name': 'argos2', 'x': 7.0, 'y': 2.5, 'z': 0.3},
@@ -164,8 +164,10 @@ def spawn_robot_group(robot_config, pkg_dir, urdf_file):
             f'/{name}/scan@sensor_msgs/msg/LaserScan[gz.msgs.LaserScan',
             # RGB Camera
             f'/{name}/camera/image_raw@sensor_msgs/msg/Image[gz.msgs.Image',
+            f'/{name}/camera/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo',
             # Depth Camera
             f'/{name}/depth_camera/depth_image@sensor_msgs/msg/Image[gz.msgs.Image',
+            f'/{name}/depth_camera/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo',
             f'/{name}/depth_camera/points@sensor_msgs/msg/PointCloud2[gz.msgs.PointCloudPacked',
             # IMU
             f'/{name}/imu/data@sensor_msgs/msg/Imu[gz.msgs.IMU',

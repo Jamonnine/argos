@@ -5,6 +5,7 @@ ARGOS PatrolArea Action Server
 """
 
 import rclpy
+import rclpy.duration
 from rclpy.node import Node
 from rclpy.action import ActionServer, GoalResponse, CancelResponse
 from rclpy.callback_groups import ReentrantCallbackGroup
@@ -13,7 +14,6 @@ from rclpy.executors import MultiThreadedExecutor
 from my_robot_interfaces.action import PatrolArea
 from geometry_msgs.msg import PoseStamped
 
-import time
 import random
 
 
@@ -57,7 +57,7 @@ class PatrolActionServer(Node):
 
         discoveries = []
         distance = 0.0
-        start_time = time.time()
+        start_time = self.get_clock().now()
         visited = 0
         feedback = PatrolArea.Feedback()
 
@@ -69,8 +69,9 @@ class PatrolActionServer(Node):
                 self.get_logger().warn(f'철수 완료 — {visited}/{total} 경유지 수색 후 중단')
                 return result
 
-            # 타임아웃 확인
-            if timeout > 0 and (time.time() - start_time) > timeout:
+            # 타임아웃 확인 (ROS 시뮬레이션 클록 기반)
+            elapsed_sec = (self.get_clock().now() - start_time).nanoseconds / 1e9
+            if timeout > 0 and elapsed_sec > timeout:
                 result = self._result(False, 'TIMEOUT', visited, total, discoveries, distance, start_time)
                 goal_handle.abort(result)
                 self.get_logger().warn(f'제한시간 {timeout:.0f}초 초과')
@@ -85,7 +86,7 @@ class PatrolActionServer(Node):
             feedback.battery_percent = max(10.0, 95.0 - (i * 5.0))
             feedback.discoveries_so_far = list(discoveries)
             goal_handle.publish_feedback(feedback)
-            time.sleep(1.0)
+            self.get_clock().sleep_for(rclpy.duration.Duration(seconds=1.0))
 
             # 이동 중 취소 재확인
             if goal_handle.is_cancel_requested:
@@ -97,7 +98,7 @@ class PatrolActionServer(Node):
             feedback.status = 'SCANNING'
             feedback.progress = (float(i) + 0.5) / total
             goal_handle.publish_feedback(feedback)
-            time.sleep(1.0)
+            self.get_clock().sleep_for(rclpy.duration.Duration(seconds=1.0))
 
             # 발견 시뮬레이션 (30%)
             if random.random() < 0.3:
@@ -121,7 +122,7 @@ class PatrolActionServer(Node):
         r.result_code = code
         r.waypoints_visited = visited
         r.coverage_percent = (visited / total * 100.0) if total > 0 else 0.0
-        r.elapsed_sec = float(time.time() - start_time)
+        r.elapsed_sec = (self.get_clock().now() - start_time).nanoseconds / 1e9
         r.distance_traveled = distance
         r.discoveries = list(discoveries)
         return r
