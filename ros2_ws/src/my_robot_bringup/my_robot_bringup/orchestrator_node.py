@@ -205,6 +205,7 @@ class OrchestratorNode(Node):
     def check_heartbeats(self):
         """주기적 heartbeat 점검: 타임아웃 시 통신 두절 판정."""
         now = self.get_clock().now().nanoseconds / 1e9
+        lost_count = 0
 
         for rid, r in self.robots.items():
             if r.last_seen == 0.0:
@@ -216,6 +217,15 @@ class OrchestratorNode(Node):
                 r.state = RobotStatus.STATE_COMM_LOST
                 self.get_logger().warn(
                     f'COMM LOST: {rid} (no status for {elapsed:.0f}s)')
+
+            if r.comm_lost:
+                lost_count += 1
+
+        # 절반 이상 두절 시 경고
+        active_count = sum(1 for r in self.robots.values() if r.last_seen > 0)
+        if active_count > 0 and lost_count > active_count / 2:
+            self.get_logger().error(
+                f'CRITICAL: {lost_count}/{active_count} robots comm lost')
 
     def _auto_stage_transition(self):
         """로봇 상태 기반 자동 단계 전환."""

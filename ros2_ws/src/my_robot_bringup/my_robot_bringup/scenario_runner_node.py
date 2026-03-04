@@ -21,7 +21,8 @@ import rclpy
 from rclpy.node import Node
 
 from std_srvs.srv import Trigger
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, Point
+from sensor_msgs.msg import RegionOfInterest
 from my_robot_interfaces.msg import MissionState, ThermalDetection
 
 
@@ -229,8 +230,12 @@ class ScenarioRunner(Node):
         """가짜 화재 감지 메시지를 UGV 열화상 토픽에 발행."""
         det = ThermalDetection()
         det.header.stamp = self.get_clock().now().to_msg()
+        det.header.frame_id = 'thermal_camera_optical_link'
         det.max_temperature_kelvin = 573.15   # 300°C → severity=high
         det.mean_temperature_kelvin = 473.15
+        det.bbox = RegionOfInterest(
+            x_offset=80, y_offset=60, width=40, height=30, do_rectify=False)
+        det.centroid_image = Point(x=100.0, y=75.0, z=0.0)
         det.confidence = 0.95
         det.severity = 'high'
         det.area_ratio = 0.15

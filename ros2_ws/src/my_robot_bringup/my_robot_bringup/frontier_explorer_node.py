@@ -46,6 +46,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
 from rclpy.callback_groups import ReentrantCallbackGroup
+from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy, HistoryPolicy
 
 from nav_msgs.msg import OccupancyGrid
 from geometry_msgs.msg import PoseStamped
@@ -99,14 +100,26 @@ class FrontierExplorer(Node):
         # --- Callback group ---
         cb_group = ReentrantCallbackGroup()
 
+        # --- QoS ---
+        map_qos = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            depth=1,
+        )
+        sensor_qos = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+        )
+
         # --- Subscribers ---
         self.map_sub = self.create_subscription(
-            OccupancyGrid, 'map', self.map_callback, 10)
+            OccupancyGrid, 'map', self.map_callback, map_qos)
 
         if thermal_pause_enabled:
             self.thermal_sub = self.create_subscription(
                 ThermalDetection, 'thermal/detections',
-                self.thermal_callback, 10)
+                self.thermal_callback, sensor_qos)
 
         # 멀티로봇: 다른 로봇 탐색 대상 수신
         self.peers_sub = self.create_subscription(

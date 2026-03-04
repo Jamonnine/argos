@@ -17,7 +17,10 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
 
+import numpy as np
+
 from std_msgs.msg import String
+from nav_msgs.msg import OccupancyGrid
 from geometry_msgs.msg import PoseStamped, PointStamped
 from my_robot_interfaces.msg import RobotStatus, FireAlert, ThermalDetection
 
@@ -47,6 +50,7 @@ class RobotStatusPublisher(Node):
         self.exploration_status = 'idle'
         self.battery = 100.0
         self.battery_start_time = self.get_clock().now()
+        self.coverage_percent = 0.0
 
         # --- TF2 ---
         self.tf_buffer = Buffer()
@@ -68,6 +72,9 @@ class RobotStatusPublisher(Node):
             ThermalDetection, 'thermal/detections',
             self.thermal_callback, 10)
 
+        self.map_sub = self.create_subscription(
+            OccupancyGrid, 'map', self.map_callback, 10)
+
         # --- Publishers ---
         self.status_pub = self.create_publisher(
             RobotStatus, '/orchestrator/robot_status', 10)
@@ -84,6 +91,15 @@ class RobotStatusPublisher(Node):
 
     def exploration_status_callback(self, msg: String):
         self.exploration_status = msg.data
+
+    def map_callback(self, msg: OccupancyGrid):
+        """맵 데이터로 탐색 커버리지 계산 (free / (free+unknown))."""
+        data = np.array(msg.data, dtype=np.int8)
+        free = int(np.sum(data == 0))
+        unknown = int(np.sum(data == -1))
+        total = free + unknown
+        if total > 0:
+            self.coverage_percent = (free / total) * 100.0
 
     def thermal_callback(self, msg: ThermalDetection):
         """high/critical 감지 시 FireAlert 발행."""
@@ -135,6 +151,7 @@ class RobotStatusPublisher(Node):
         self.battery = max(0.0, 100.0 - self.drain_rate * elapsed)
         msg.battery_percent = self.battery
         msg.current_mission = self.exploration_status
+        msg.coverage_percent = self.coverage_percent
         msg.capabilities = self.capabilities
 
         self.status_pub.publish(msg)

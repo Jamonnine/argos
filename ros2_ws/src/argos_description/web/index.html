@@ -65,10 +65,22 @@
     font-size: 13px; font-weight: 600; color: #fff; transition: 0.2s;
   }
   .controls button:hover { filter: brightness(1.2); }
+  .controls button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .controls button.active { animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
   .btn-estop { background: var(--highlight); }
   .btn-resume { background: var(--green); color: #000 !important; }
   .btn-takeoff { background: var(--blue); }
   .btn-land { background: var(--orange); color: #000 !important; }
+
+  /* Battery bar */
+  .battery-bar {
+    display: inline-block; width: 40px; height: 12px;
+    background: #333; border-radius: 3px; overflow: hidden; vertical-align: middle;
+  }
+  .battery-fill {
+    height: 100%; border-radius: 3px; transition: width 0.5s;
+  }
 
   /* Fire alerts */
   .fire-log { max-height: 150px; overflow-y: auto; }
@@ -143,16 +155,16 @@
     <div class="panel">
       <h2>Controls</h2>
       <div class="controls">
-        <button class="btn-estop" onclick="callService('/orchestrator/emergency_stop')">
+        <button class="btn-estop" id="btn-estop" onclick="callServiceBtn(this, '/orchestrator/emergency_stop')">
           EMERGENCY STOP
         </button>
-        <button class="btn-resume" onclick="callService('/orchestrator/resume')">
+        <button class="btn-resume" id="btn-resume" onclick="callServiceBtn(this, '/orchestrator/resume')">
           Resume
         </button>
-        <button class="btn-takeoff" onclick="callService('/drone1/drone/takeoff')">
+        <button class="btn-takeoff" onclick="callServiceBtn(this, '/drone1/drone/takeoff')">
           Drone Takeoff
         </button>
-        <button class="btn-land" onclick="callService('/drone1/drone/land')">
+        <button class="btn-land" onclick="callServiceBtn(this, '/drone1/drone/land')">
           Drone Land
         </button>
       </div>
@@ -264,14 +276,34 @@ function subscribe() {
 }
 
 // ─────────────── Service Calls ───────────────
-function callService(name) {
+function callServiceBtn(btn, name) {
+  const originalText = btn.textContent;
+  btn.disabled = true;
+  btn.classList.add('active');
+  btn.textContent = 'Sending...';
+
   const srv = new ROSLIB.Service({
     ros, name, serviceType: 'std_srvs/Trigger'
   });
   srv.callService(
     new ROSLIB.ServiceRequest({}),
-    res => console.log(`${name}: ${res.message}`),
-    err => console.error(`${name} failed:`, err)
+    res => {
+      btn.textContent = res.success ? 'OK' : 'Failed';
+      setTimeout(() => {
+        btn.textContent = originalText;
+        btn.disabled = false;
+        btn.classList.remove('active');
+      }, 1500);
+    },
+    err => {
+      console.error(`${name} failed:`, err);
+      btn.textContent = 'Error';
+      setTimeout(() => {
+        btn.textContent = originalText;
+        btn.disabled = false;
+        btn.classList.remove('active');
+      }, 1500);
+    }
   );
 }
 
@@ -302,13 +334,18 @@ function updateRobotTable() {
     const pos = p
       ? `(${p.x.toFixed(1)}, ${p.y.toFixed(1)})`
       : '(?, ?)';
+    const bat = r.battery_percent || 0;
+    const batColor = bat > 50 ? 'var(--green)' : bat > 20 ? 'var(--orange)' : 'var(--highlight)';
     tbody.innerHTML += `<tr>
       <td><strong>${id}</strong></td>
       <td class="${typeBadge}">${(r.robot_type || 'ugv').toUpperCase()}</td>
       <td><span class="state-badge ${STATE_CLASSES[stateIdx]}">${STATE_NAMES[stateIdx]}</span></td>
       <td>${pos}</td>
       <td>${r.current_mission || '-'}</td>
-      <td>${(r.battery_percent || 0).toFixed(0)}%</td>
+      <td>
+        <span class="battery-bar"><span class="battery-fill" style="width:${bat}%;background:${batColor}"></span></span>
+        ${bat.toFixed(0)}%
+      </td>
     </tr>`;
   }
 }
