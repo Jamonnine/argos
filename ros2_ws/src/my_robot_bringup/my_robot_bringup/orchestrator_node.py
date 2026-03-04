@@ -32,7 +32,6 @@ from rclpy.qos import (
     QoSProfile,
     ReliabilityPolicy,
     DurabilityPolicy,
-    LivelinessPolicy,
 )
 from rclpy.callback_groups import ReentrantCallbackGroup
 
@@ -306,6 +305,16 @@ class OrchestratorNode(Node):
                 if active:
                     self.stage = MissionState.STAGE_COMPLETE
                     self.get_logger().info('All exploration complete — Stage → COMPLETE')
+
+        elif self.stage == MissionState.STAGE_FIRE_RESPONSE:
+            # 모든 화점이 비활성(진화/오탐) → 탐색 재개
+            active_fires = [f for f in self.fire_alerts if f.active]
+            if not active_fires:
+                self.stage = MissionState.STAGE_EXPLORING
+                self.primary_responder = None
+                self.fire_response_target = None
+                self.get_logger().info(
+                    'No active fires remaining — Stage → EXPLORING')
 
     def publish_mission_state(self):
         """전체 임무 상태 발행."""

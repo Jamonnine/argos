@@ -45,6 +45,7 @@ import cv2
 import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
+from action_msgs.msg import GoalStatus
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy, HistoryPolicy
 
@@ -92,6 +93,7 @@ class FrontierExplorer(Node):
         self.no_frontier_count = 0      # 연속 프론티어 미발견 횟수
         self.nav_server_ready = False   # Nav2 서버 가용 플래그
         self._nav_lock = threading.Lock()  # navigating 상태 보호
+        self._goal_cancelled = False   # 열화상 등으로 의도적 취소 시 블랙리스트 방지
 
         # --- TF2 (로봇 위치 조회) ---
         self.tf_buffer = Buffer()
@@ -168,6 +170,7 @@ class FrontierExplorer(Node):
                 f'THERMAL {msg.severity.upper()}: {temp_c:.0f} C '
                 f'— exploration PAUSED')
             if self.nav_goal_handle:
+                self._goal_cancelled = True
                 self.nav_goal_handle.cancel_goal_async()
             self.publish_status('paused_thermal')
 
@@ -219,6 +222,7 @@ class FrontierExplorer(Node):
             self.no_frontier_count += 1
             if self.no_frontier_count >= 5:
                 self.exploration_complete = True
+                self.explore_timer.cancel()
                 self.get_logger().info(
                     'No frontiers for 5 cycles — EXPLORATION COMPLETE')
                 self.publish_status('complete')
@@ -364,16 +368,21 @@ class FrontierExplorer(Node):
                 self.nav_goal_handle = None
                 return
 
-            # status 4 = SUCCEEDED
-            if result.status == 4:
+            if result.status == GoalStatus.STATUS_SUCCEEDED:
                 self.get_logger().info(
                     f'Reached frontier ({self.current_goal[0]:.1f}, '
                     f'{self.current_goal[1]:.1f})')
+                self.blacklisted.append(self.current_goal)
+            elif self._goal_cancelled:
+                # 열화상 등 의도적 취소 — 블랙리스트 안 함 (재개 시 재시도 가능)
+                self.get_logger().info(
+                    f'Goal cancelled (will retry on resume)')
+                self._goal_cancelled = False
             else:
                 self.get_logger().warn(
                     f'Nav failed (status={result.status}) — blacklisting')
+                self.blacklisted.append(self.current_goal)
 
-            self.blacklisted.append(self.current_goal)
             self.current_goal = None
             self.navigating = False
             self.nav_goal_handle = None
@@ -387,8 +396,6 @@ class FrontierExplorer(Node):
                 'map', 'base_footprint', rclpy.time.Time())
             return (t.transform.translation.x, t.transform.translation.y)
         except Exception:
-            if self.current_goal:
-                return self.current_goal
             return None
 
     def _is_blacklisted(self, x, y):

@@ -19,13 +19,12 @@ from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
     IncludeLaunchDescription,
-    GroupAction,
     RegisterEventHandler,
 )
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration
-from launch_ros.actions import Node, PushRosNamespace
+from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from ament_index_python.packages import get_package_share_directory
 
@@ -38,7 +37,7 @@ ROBOTS = [
 
 
 def spawn_robot_group(robot_config, pkg_dir, urdf_file):
-    """단일 로봇의 전체 스택을 GroupAction으로 구성."""
+    """단일 로봇의 전체 스택 구성 (/clock은 generate_launch_description에서 공통 처리)."""
     name = robot_config['name']
     x = str(robot_config['x'])
     y = str(robot_config['y'])
@@ -172,8 +171,6 @@ def spawn_robot_group(robot_config, pkg_dir, urdf_file):
             f'/{name}/imu/data@sensor_msgs/msg/Imu[gz.msgs.IMU',
             # Thermal Camera
             f'/{name}/thermal/image_raw@sensor_msgs/msg/Image[gz.msgs.Image',
-            # Clock (전역)
-            '/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock',
         ],
         output='screen',
     )
@@ -213,8 +210,19 @@ def generate_launch_description():
         }.items(),
     )
 
+    # --- 공통 /clock 브릿지 (1개만 필요) ---
+    clock_bridge = Node(
+        package='ros_gz_bridge',
+        executable='parameter_bridge',
+        name='clock_bridge',
+        arguments=[
+            '/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock',
+        ],
+        output='screen',
+    )
+
     # --- 각 로봇 스택 구성 ---
-    all_entities = [world_arg, gazebo]
+    all_entities = [world_arg, gazebo, clock_bridge]
     for robot in ROBOTS:
         all_entities.extend(
             spawn_robot_group(robot, pkg_dir, urdf_file)
