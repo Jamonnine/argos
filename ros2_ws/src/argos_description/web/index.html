@@ -131,6 +131,10 @@
     height: 100%; border-radius: 3px; background: var(--blue); transition: width 0.5s;
   }
 
+  /* Battery critical blink */
+  .battery-critical { animation: bat-blink 0.8s infinite; }
+  @keyframes bat-blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
   .drone-grounded { background: #444; }
   .drone-taking_off { background: var(--blue); color: #000; }
   .drone-hovering { background: var(--green); color: #000; }
@@ -410,7 +414,7 @@ function updateRobotTable() {
       <td>${pos}</td>
       <td>${r.current_mission || '-'}</td>
       <td>${isDrone ? '-' : `<span class="progress-bar"><span class="progress-fill" style="width:${progress}%"></span></span> ${progressLabel}`}</td>
-      <td>
+      <td class="${bat <= 15 ? 'battery-critical' : ''}">
         <span class="battery-bar"><span class="battery-fill" style="width:${bat}%;background:${batColor}"></span></span>
         ${bat.toFixed(0)}%
       </td>

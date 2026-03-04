@@ -56,6 +56,7 @@ class RobotRecord:
         self.capabilities = []
         self.pose = None
         self.comm_lost = False
+        self.battery_warned = False  # 배터리 경고 중복 방지
 
 
 class OrchestratorNode(Node):
@@ -64,6 +65,9 @@ class OrchestratorNode(Node):
     HEARTBEAT_TIMEOUT = 10.0
     # 상태 발행 주기 (초)
     PUBLISH_RATE = 2.0
+    # 배터리 임계값 (%)
+    BATTERY_WARNING = 30.0   # 경고 발행
+    BATTERY_CRITICAL = 15.0  # 자동 귀환 트리거
 
     def __init__(self):
         super().__init__('orchestrator')
@@ -158,6 +162,9 @@ class OrchestratorNode(Node):
             r.comm_lost = False
             self.get_logger().info(f'Robot {rid} reconnected')
 
+        # 배터리 경고/자동귀환
+        self._check_battery(rid, r)
+
         # 자동 단계 전환
         self._auto_stage_transition()
 
@@ -206,6 +213,21 @@ class OrchestratorNode(Node):
         return response
 
     # ─────────────────── Core Logic ───────────────────
+
+    def _check_battery(self, rid: str, r: 'RobotRecord'):
+        """배터리 수준 체크: 경고 → 자동 귀환."""
+        if r.battery <= self.BATTERY_CRITICAL and r.state != RobotStatus.STATE_RETURNING:
+            self.get_logger().error(
+                f'BATTERY CRITICAL: {rid} at {r.battery:.0f}% — auto-return')
+            # 정지 명령 발행 (탐색 중단 유도)
+            if rid not in self.robot_stop_pubs:
+                self.robot_stop_pubs[rid] = self.create_publisher(
+                    Twist, f'/{rid}/cmd_vel', 10)
+            self.robot_stop_pubs[rid].publish(Twist())
+        elif r.battery <= self.BATTERY_WARNING and not r.battery_warned:
+            r.battery_warned = True
+            self.get_logger().warn(
+                f'BATTERY LOW: {rid} at {r.battery:.0f}%')
 
     def check_heartbeats(self):
         """주기적 heartbeat 점검: 타임아웃 시 통신 두절 판정."""

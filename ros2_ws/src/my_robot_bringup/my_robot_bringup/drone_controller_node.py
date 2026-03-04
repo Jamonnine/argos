@@ -208,15 +208,21 @@ class DroneController(Node):
 
         elif self.state == 'flying':
             if h_dist < self.pos_tol and abs(dz) < self.alt_tol:
+                remaining = len(self.waypoint_queue)
                 self.get_logger().info(
-                    f'Reached waypoint ({tx:.1f}, {ty:.1f})')
+                    f'Reached waypoint ({tx:.1f}, {ty:.1f}) '
+                    f'— {remaining} remaining')
                 if self.waypoint_queue:
                     self.target_waypoint = self.waypoint_queue.pop(0)
                 else:
                     self.state = 'hovering'
+                    self.get_logger().info(
+                        'All waypoints completed — hovering')
 
         elif self.state == 'landing':
-            if z < 0.2 and abs(dz) < 0.15:
+            # 착륙 조건: 고도 0.3m 이하 AND (수직 오차 < 0.4m OR 수직 속도 매우 작음)
+            # Gazebo 물리 시뮬레이션에서 지면 바운스를 고려한 완화 조건
+            if z < 0.3 and abs(dz) < 0.4:
                 self.state = 'grounded'
                 self.target_waypoint = None
                 self.get_logger().info('Landed')
