@@ -12,6 +12,12 @@
 
 현직 소방관이 실제 소방 현장 운영 경험을 바탕으로 설계한 **Supervised Autonomy** 아키텍처 — 오케스트레이터가 "무엇을" 결정하고, 각 로봇이 "어떻게"를 자율 수행합니다.
 
+<p align="center">
+  <img src="docs/demo.gif" alt="ARGOS Demo - Multi-Robot Fire Response" width="720">
+  <br>
+  <em>UGV 3대 + 드론 1대의 자율 탐색 → 화재 감지 → 대응 → 귀환 시나리오</em>
+</p>
+
 ## Highlights
 
 - **이종 군집 로봇**: UGV 2대 + 드론 1대가 동시에 실내 환경을 탐색
