@@ -140,13 +140,35 @@
   .drone-hovering { background: var(--green); color: #000; }
   .drone-flying { background: var(--orange); color: #000; }
   .drone-landing { background: var(--highlight); }
+
+  /* Stage timeline */
+  .stage-timeline {
+    display: flex; gap: 2px; margin: 8px 0; align-items: center;
+  }
+  .stage-dot {
+    width: 10px; height: 10px; border-radius: 50%; background: #333;
+    border: 1px solid #555; flex-shrink: 0;
+  }
+  .stage-dot.active { background: var(--blue); border-color: var(--blue); box-shadow: 0 0 6px var(--blue); }
+  .stage-dot.done { background: var(--green); border-color: var(--green); }
+  .stage-dot.fire-active { background: var(--highlight); border-color: var(--highlight); box-shadow: 0 0 6px var(--highlight); }
+  .stage-line { width: 12px; height: 2px; background: #333; flex-shrink: 0; }
+  .stage-line.done { background: var(--green); }
+  .stage-label { font-size: 9px; color: #666; text-align: center; }
+  .stage-label.active { color: var(--text); font-weight: 600; }
+
+  /* Nav error indicator */
+  .nav-errors { color: var(--orange); font-size: 11px; }
+
+  /* Reconnect counter */
+  #reconnect-count { font-size: 10px; color: #888; margin-left: 8px; }
 </style>
 </head>
 <body>
 
 <header>
   <h1>ARGOS Mission Control</h1>
-  <span id="conn-status">Disconnected</span>
+  <span id="conn-status">Disconnected</span><span id="reconnect-count"></span>
 </header>
 
 <div class="grid">
@@ -181,6 +203,10 @@
       <div class="field">
         <div class="label">Primary Responder</div>
         <div class="value" id="primary-responder" style="font-size:14px">-</div>
+      </div>
+      <div class="field">
+        <div class="label">Stage Timeline</div>
+        <div class="stage-timeline" id="stage-timeline"></div>
       </div>
     </div>
 
@@ -223,7 +249,7 @@
       <thead>
         <tr>
           <th>Robot</th><th>Type</th><th>State</th>
-          <th>Position</th><th>Mission</th><th>Progress</th><th>Battery</th>
+          <th>Position</th><th>Mission</th><th>Progress</th><th>Err</th><th>Battery</th>
         </tr>
       </thead>
       <tbody id="robot-tbody"></tbody>
@@ -246,6 +272,8 @@ const fireAlerts = [];  // list of FireAlert
 const droneStates = {}; // drone_id → state string (grounded/hovering/flying/landing)
 let missionState = null;
 let subscribedDrones = new Set();  // 동적으로 구독한 드론 목록
+let reconnectCount = 0;
+const stageHistory = [];  // [{stage, time}] — 단계 전환 기록
 
 // ─────────────── ROS Connection ───────────────
 const ros = new ROSLIB.Ros({ url: WS_URL });
@@ -263,6 +291,9 @@ ros.on('error', () => {
 ros.on('close', () => {
   statusEl.textContent = 'Disconnected';
   statusEl.className = '';
+  reconnectCount++;
+  document.getElementById('reconnect-count').textContent =
+    reconnectCount > 0 ? `(reconnects: ${reconnectCount})` : '';
   setTimeout(() => ros.connect(WS_URL), 3000);
 });
 
@@ -358,6 +389,12 @@ function callServiceBtn(btn, name) {
 }
 
 // ─────────────── UI Updates ───────────────
+function formatElapsed(sec) {
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
 function updateMissionPanel(m) {
   const stageIdx = m.stage || 0;
   const el = document.getElementById('stage');
@@ -365,7 +402,7 @@ function updateMissionPanel(m) {
   el.className = 'value stage ' + (STAGE_CLASSES[stageIdx] || '');
 
   document.getElementById('elapsed').textContent =
-    Math.round(m.elapsed_sec || 0) + 's';
+    formatElapsed(m.elapsed_sec || 0);
   document.getElementById('coverage').textContent =
     (m.overall_coverage_percent || 0).toFixed(1) + '%';
   document.getElementById('robot-count').textContent =
@@ -377,10 +414,39 @@ function updateMissionPanel(m) {
   document.getElementById('primary-responder').textContent =
     m.primary_responder || '-';
 
+  // 스테이지 전환 기록
+  if (stageHistory.length === 0 || stageHistory[stageHistory.length - 1].stage !== stageIdx) {
+    stageHistory.push({ stage: stageIdx, time: m.elapsed_sec || 0 });
+  }
+  updateStageTimeline(stageIdx);
+
   // 동적 드론 감지: robot_type이 'drone'인 로봇 자동 구독
   for (const [id, r] of Object.entries(robots)) {
     if (r.robot_type === 'drone') subscribeDroneState(id);
   }
+}
+
+function updateStageTimeline(currentStage) {
+  const container = document.getElementById('stage-timeline');
+  const labels = ['INIT', 'EXPL', 'FIRE', 'RTN', 'DONE'];
+  const maxStageReached = Math.max(...stageHistory.map(h => h.stage), currentStage);
+  let html = '';
+  for (let i = 0; i < 5; i++) {
+    if (i > 0) {
+      const lineDone = i <= maxStageReached ? ' done' : '';
+      html += `<div class="stage-line${lineDone}"></div>`;
+    }
+    let dotClass = 'stage-dot';
+    let labelClass = 'stage-label';
+    if (i === currentStage) {
+      dotClass += i === 2 ? ' fire-active' : ' active';
+      labelClass += ' active';
+    } else if (i < maxStageReached || stageHistory.some(h => h.stage === i)) {
+      dotClass += ' done';
+    }
+    html += `<div style="text-align:center"><div class="${dotClass}"></div><div class="${labelClass}">${labels[i]}</div></div>`;
+  }
+  container.innerHTML = html;
 }
 
 function updateRobotTable() {
@@ -407,6 +473,8 @@ function updateRobotTable() {
     const progress = ((r.mission_progress || 0) * 100).toFixed(0);
     const frontiers = r.frontiers_remaining || 0;
     const progressLabel = isDrone ? '-' : `${progress}% (${frontiers})`;
+    const navErr = r.nav_error_count || 0;
+    const navErrDisplay = isDrone ? '-' : (navErr > 0 ? `<span class="nav-errors">${navErr}</span>` : '0');
     tbody.innerHTML += `<tr>
       <td><strong>${id}</strong></td>
       <td class="${typeBadge}">${(r.robot_type || 'ugv').toUpperCase()}</td>
@@ -414,6 +482,7 @@ function updateRobotTable() {
       <td>${pos}</td>
       <td>${r.current_mission || '-'}</td>
       <td>${isDrone ? '-' : `<span class="progress-bar"><span class="progress-fill" style="width:${progress}%"></span></span> ${progressLabel}`}</td>
+      <td>${navErrDisplay}</td>
       <td class="${bat <= 15 ? 'battery-critical' : ''}">
         <span class="battery-bar"><span class="battery-fill" style="width:${bat}%;background:${batColor}"></span></span>
         ${bat.toFixed(0)}%
@@ -579,17 +648,24 @@ function drawMap() {
 
   // HUD overlay (상단 좌측)
   if (missionState) {
+    const fires = missionState.fire_count || 0;
+    const hudH = fires > 0 ? 62 : 48;
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.fillRect(4, 4, 140, 48);
+    ctx.fillRect(4, 4, 160, hudH);
     ctx.fillStyle = '#fff';
     ctx.font = '11px sans-serif';
     ctx.textAlign = 'left';
     const cov = (missionState.overall_coverage_percent || 0).toFixed(1);
-    const fires = missionState.fire_count || 0;
     const stg = STAGE_NAMES[missionState.stage || 0];
-    ctx.fillText(`Stage: ${stg}`, 8, 18);
+    const elapsed = formatElapsed(missionState.elapsed_sec || 0);
+    ctx.fillText(`Stage: ${stg}  ${elapsed}`, 8, 18);
     ctx.fillText(`Coverage: ${cov}%`, 8, 32);
     ctx.fillText(`Fires: ${fires}`, 8, 46);
+    if (fires > 0 && fireAlerts.length > 0) {
+      const sev = fireAlerts[0].severity || '?';
+      ctx.fillStyle = '#e94560';
+      ctx.fillText(`Severity: ${sev.toUpperCase()}`, 8, 60);
+    }
   }
 
   requestAnimationFrame(drawMap);
