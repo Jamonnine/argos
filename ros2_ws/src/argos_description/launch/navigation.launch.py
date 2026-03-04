@@ -1,8 +1,8 @@
 """
-ARGOS UGV Navigation Launch (Gazebo + Nav2 + SLAM + Thermal)
-=============================================================
-하나의 launch로 전체 네비게이션 + 열화상 감지 스택 실행:
-  Gazebo(월드+로봇) → 컨트롤러 → SLAM → Nav2 → 화점 감지
+ARGOS UGV Navigation Launch (Gazebo + Nav2 + SLAM + Thermal + Exploration)
+==========================================================================
+하나의 launch로 전체 자율 탐색 스택 실행:
+  Gazebo(월드+로봇) → 컨트롤러 → SLAM → Nav2 → 화점 감지 → 프론티어 탐색
 
 실행 순서 (이벤트 체이닝):
   1. Gazebo 시뮬레이션 + robot_state_publisher
@@ -12,9 +12,11 @@ ARGOS UGV Navigation Launch (Gazebo + Nav2 + SLAM + Thermal)
   5. 토픽 릴레이 (cmd_vel / odom 라우팅)
   6. Nav2 bringup (slam=True) — Gazebo /clock 이후 시작
   7. Hotspot detector — 열화상 화점 감지
+  8. Frontier explorer — 자율 탐색 (explore:=true 시)
 
 사용법:
   ros2 launch argos_description navigation.launch.py
+  ros2 launch argos_description navigation.launch.py explore:=true
   ros2 launch argos_description navigation.launch.py world:=empty.sdf
 """
 
@@ -27,6 +29,7 @@ from launch.actions import (
     RegisterEventHandler,
     TimerAction,
 )
+from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration
@@ -48,6 +51,11 @@ def generate_launch_description():
         'world',
         default_value=os.path.join(pkg_dir, 'worlds', 'indoor_test.sdf'),
         description='Gazebo world file'
+    )
+
+    explore_arg = DeclareLaunchArgument(
+        'explore', default_value='false',
+        description='Enable autonomous frontier exploration'
     )
 
     # --- URDF ---
@@ -189,8 +197,27 @@ def generate_launch_description():
         output='screen',
     )
 
+    # --- 9. 프론티어 자율 탐색 (explore:=true 시 활성화) ---
+    frontier_explorer = Node(
+        package='my_robot_bringup',
+        executable='frontier_explorer',
+        name='frontier_explorer',
+        parameters=[{
+            'use_sim_time': True,
+            'min_frontier_size': 8,
+            'exclusion_radius': 2.0,
+            'blacklist_radius': 1.0,
+            'exploration_rate': 1.0,
+            'robot_name': '',
+            'thermal_pause': True,
+        }],
+        output='screen',
+        condition=IfCondition(LaunchConfiguration('explore')),
+    )
+
     return LaunchDescription([
         world_arg,
+        explore_arg,
         robot_state_publisher,
         gazebo,
         spawn_robot,
@@ -201,4 +228,5 @@ def generate_launch_description():
         odom_relay,
         nav2_bringup,
         hotspot_detector,
+        frontier_explorer,
     ])

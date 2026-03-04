@@ -13,7 +13,7 @@
 | MS-2 | ARGOS UGV URDF (xacro modular) | Done |
 | MS-3 | Nav2 + SLAM integration | Done |
 | MS-4 | Thermal camera simulation | Done |
-| MS-5 | Multi-robot namespace separation | - |
+| MS-5 | Multi-robot namespace separation | Done |
 | MS-6 | Distributed exploration | - |
 | MS-7 | Orchestrator node | - |
 | MS-8 | Drone platform (heterogeneous) | - |
@@ -62,6 +62,9 @@ ros2 launch argos_description gazebo.launch.py
 
 # Navigation + SLAM + Thermal detection
 ros2 launch argos_description navigation.launch.py
+
+# Multi-robot simulation (2 UGVs)
+ros2 launch argos_description multi_robot.launch.py
 
 # Test patrol action
 ros2 run my_robot_bringup patrol_server &
