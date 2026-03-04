@@ -18,7 +18,8 @@ UGV와 드론 모두 지원:
 
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
+from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, LivelinessPolicy
+from rclpy.duration import Duration
 
 import numpy as np
 
@@ -102,9 +103,14 @@ class RobotStatusPublisher(Node):
                 Odometry, 'odom',
                 self.odom_callback, 10)
 
-        # --- Publishers ---
+        # --- Publishers (Deadline QoS: .msg 문서와 일치하는 5초 보장) ---
+        status_qos = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            depth=10,
+            deadline=Duration(seconds=5),
+        )
         self.status_pub = self.create_publisher(
-            RobotStatus, '/orchestrator/robot_status', 10)
+            RobotStatus, '/orchestrator/robot_status', status_qos)
 
         self.fire_pub = self.create_publisher(
             FireAlert, '/orchestrator/fire_alert', reliable_qos)

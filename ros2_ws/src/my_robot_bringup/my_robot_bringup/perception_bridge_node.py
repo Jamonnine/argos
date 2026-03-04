@@ -326,7 +326,10 @@ def main(args=None):
 
     try:
         executor.spin()
+    except KeyboardInterrupt:
+        pass
     finally:
+        node.get_logger().info('PerceptionBridge shutting down')
         node.destroy_node()
         rclpy.shutdown()
 

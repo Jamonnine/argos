@@ -33,6 +33,7 @@ from rclpy.qos import (
     ReliabilityPolicy,
     DurabilityPolicy,
 )
+from rclpy.duration import Duration
 from rclpy.callback_groups import ReentrantCallbackGroup
 
 from std_srvs.srv import Trigger
@@ -103,10 +104,15 @@ class OrchestratorNode(Node):
             depth=10,
         )
 
-        # --- Subscribers ---
+        # --- Subscribers (Deadline QoS: 5초 내 미수신 시 통신 두절 판단) ---
+        status_qos = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            depth=10,
+            deadline=Duration(seconds=5),
+        )
         self.status_sub = self.create_subscription(
             RobotStatus, '/orchestrator/robot_status',
-            self.robot_status_callback, 10)
+            self.robot_status_callback, status_qos)
 
         self.fire_sub = self.create_subscription(
             FireAlert, '/orchestrator/fire_alert',
@@ -183,6 +189,17 @@ class OrchestratorNode(Node):
             self.fire_response_target = fire_pt
             self.get_logger().warn('Stage → FIRE_RESPONSE')
             self._execute_fire_response(fire_pt, msg.severity)
+        elif self.stage == MissionState.STAGE_FIRE_RESPONSE:
+            # 추가 화점: 더 심각하면 대응 대상 갱신
+            severity_rank = {'low': 0, 'medium': 1, 'high': 2, 'critical': 3}
+            current_sev = severity_rank.get(
+                getattr(self, '_current_fire_severity', 'low'), 0)
+            new_sev = severity_rank.get(msg.severity, 0)
+            if new_sev > current_sev:
+                self.fire_response_target = fire_pt
+                self._execute_fire_response(fire_pt, msg.severity)
+                self.get_logger().warn(
+                    f'Fire escalation: {msg.severity} — re-dispatching')
 
     def emergency_stop_callback(self, request, response):
         """긴급 정지 — 모든 로봇에 영속도 명령 + 귀환 전환."""
@@ -257,6 +274,7 @@ class OrchestratorNode(Node):
 
     def _execute_fire_response(self, fire_pt: Point, severity: str):
         """화재 대응 전술 실행: 최근접 UGV 배정 + 드론 화점 상공 배치."""
+        self._current_fire_severity = severity
         # 1) 최근접 UGV 선정 (위치 보고가 있는 UGV 중)
         best_ugv = None
         best_dist = float('inf')
@@ -352,6 +370,7 @@ class OrchestratorNode(Node):
                 self.stage = MissionState.STAGE_EXPLORING
                 self.primary_responder = None
                 self.fire_response_target = None
+                self._current_fire_severity = None
                 self.get_logger().info(
                     'No active fires remaining — Stage → EXPLORING')
 
@@ -409,6 +428,10 @@ def main(args=None):
     except KeyboardInterrupt:
         pass
     finally:
+        # 종료 상태 발행 (대시보드에 반영)
+        node.stage = MissionState.STAGE_COMPLETE
+        node.publish_mission_state()
+        node.get_logger().info('Orchestrator shutting down — COMPLETE published')
         node.destroy_node()
         rclpy.shutdown()
 

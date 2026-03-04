@@ -256,6 +256,10 @@ def main(args=None):
     except KeyboardInterrupt:
         pass
     finally:
+        # 안전 셧다운: 속도 제로 발행 (호버링 모드)
+        if node.state != 'grounded':
+            node.get_logger().info('Shutdown: sending zero velocity')
+            node.cmd_pub.publish(Twist())
         node.destroy_node()
         rclpy.shutdown()
 
