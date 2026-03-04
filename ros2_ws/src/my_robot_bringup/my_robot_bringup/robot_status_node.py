@@ -48,6 +48,9 @@ class RobotStatusPublisher(Node):
         self.declare_parameter('use_sim_time', True)
 
         self.robot_id = self.get_parameter('robot_id').value
+        if not self.robot_id:
+            self.get_logger().error(
+                'robot_id 파라미터가 비어있음! launch 파일 확인 필요')
         self.robot_type = self.get_parameter('robot_type').value
         self.capabilities = self.get_parameter('capabilities').value
         self.drain_rate = self.get_parameter('battery_drain_rate').value
@@ -83,8 +86,15 @@ class RobotStatusPublisher(Node):
             ThermalDetection, 'thermal/detections',
             self.thermal_callback, 10)
 
+        # SLAM toolbox는 TRANSIENT_LOCAL로 map 발행 → 구독도 일치시켜야
+        # 노드 늦게 시작해도 마지막 map을 수신할 수 있음
+        map_qos = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            depth=1,
+        )
         self.map_sub = self.create_subscription(
-            OccupancyGrid, 'map', self.map_callback, 10)
+            OccupancyGrid, 'map', self.map_callback, map_qos)
 
         # UGV: frontier_explorer에서 탐색 통계 수신
         self.frontier_count_sub = self.create_subscription(

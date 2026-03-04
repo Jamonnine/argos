@@ -58,6 +58,7 @@ class RobotRecord:
         self.pose = None
         self.comm_lost = False
         self.battery_warned = False  # 배터리 경고 중복 방지
+        self.battery_critical_acted = False  # 배터리 위험 중복 방지
 
 
 class OrchestratorNode(Node):
@@ -76,8 +77,12 @@ class OrchestratorNode(Node):
         # --- Parameters ---
         self.declare_parameter('expected_robots', ['argos1', 'argos2'])
         self.declare_parameter('use_sim_time', True)
+        self.declare_parameter('return_timeout_sec', 30.0)
+        self.declare_parameter('fire_alert_expiry_sec', 300.0)  # 5분 후 자동 비활성
 
         expected = self.get_parameter('expected_robots').value
+        self.return_timeout = self.get_parameter('return_timeout_sec').value
+        self.fire_expiry = self.get_parameter('fire_alert_expiry_sec').value
 
         # --- State ---
         self.stage = MissionState.STAGE_INIT
@@ -234,10 +239,13 @@ class OrchestratorNode(Node):
 
     def _check_battery(self, rid: str, r: 'RobotRecord'):
         """배터리 수준 체크: 경고 → 자동 귀환."""
-        if r.battery <= self.BATTERY_CRITICAL and r.state != RobotStatus.STATE_RETURNING:
+        if (r.battery <= self.BATTERY_CRITICAL
+                and r.state != RobotStatus.STATE_RETURNING
+                and not r.battery_critical_acted):
+            r.battery_critical_acted = True
             self.get_logger().error(
                 f'BATTERY CRITICAL: {rid} at {r.battery:.0f}% — auto-return')
-            # 정지 명령 발행 (탐색 중단 유도)
+            # 정지 명령 1회 발행 (탐색 중단 유도)
             if rid not in self.robot_stop_pubs:
                 self.robot_stop_pubs[rid] = self.create_publisher(
                     Twist, f'/{rid}/cmd_vel', 10)
@@ -337,12 +345,16 @@ class OrchestratorNode(Node):
 
         elif self.stage == MissionState.STAGE_EXPLORING:
             # 모든 로봇이 탐색 완료 시 → RETURNING (귀환 단계)
-            all_complete = all(
-                r.current_mission == 'complete' or r.state == RobotStatus.STATE_IDLE
-                for r in self.robots.values()
-                if not r.comm_lost
+            # STATE_IDLE만으로 판단하면 탐색 시작 전 로봇이 '완료'로 오인됨
+            active_robots = [
+                r for r in self.robots.values()
+                if not r.comm_lost and r.last_seen > 0
+            ]
+            all_complete = (
+                len(active_robots) > 0
+                and all(r.current_mission == 'complete' for r in active_robots)
             )
-            if all_complete and any(r.last_seen > 0 for r in self.robots.values()):
+            if all_complete:
                 active = [r for r in self.robots.values() if not r.comm_lost]
                 if active:
                     self.stage = MissionState.STAGE_RETURNING
@@ -357,15 +369,18 @@ class OrchestratorNode(Node):
                 for r in self.robots.values()
                 if not r.comm_lost
             )
-            # 15초 경과 또는 모두 IDLE이면 COMPLETE
             elapsed = (self.get_clock().now() - self.return_start_time).nanoseconds / 1e9
-            if all_idle or elapsed > 15.0:
+            if all_idle or elapsed > self.return_timeout:
                 self.stage = MissionState.STAGE_COMPLETE
                 self.get_logger().info('All robots returned — Stage → COMPLETE')
 
         elif self.stage == MissionState.STAGE_FIRE_RESPONSE:
-            # 모든 화점이 비활성(진화/오탐) → 탐색 재개
-            active_fires = [f for f in self.fire_alerts if f.active]
+            # 화점 시간 만료 체크 (fire_expiry 초 경과 시 비활성)
+            now_sec = self.get_clock().now().nanoseconds / 1e9
+            active_fires = [
+                f for f in self.fire_alerts
+                if f.active and (now_sec - f.header.stamp.sec) < self.fire_expiry
+            ]
             if not active_fires:
                 self.stage = MissionState.STAGE_EXPLORING
                 self.primary_responder = None
@@ -395,8 +410,12 @@ class OrchestratorNode(Node):
         if active_coverages:
             msg.overall_coverage_percent = sum(active_coverages) / len(active_coverages)
 
-        # 화점
-        active_fires = [f for f in self.fire_alerts if f.active]
+        # 화점 (만료되지 않은 것만)
+        now_sec = self.get_clock().now().nanoseconds / 1e9
+        active_fires = [
+            f for f in self.fire_alerts
+            if f.active and (now_sec - f.header.stamp.sec) < self.fire_expiry
+        ]
         msg.fire_count = len(active_fires)
         msg.fire_locations = [f.location.point for f in active_fires]
 

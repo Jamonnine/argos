@@ -457,7 +457,11 @@ function updateMissionPanel(m) {
 function updateStageTimeline(currentStage) {
   const container = document.getElementById('stage-timeline');
   const labels = ['INIT', 'EXPL', 'FIRE', 'RTN', 'DONE'];
-  const maxStageReached = Math.max(...stageHistory.map(h => h.stage), currentStage);
+  // PAUSED(5)는 순차 단계가 아니므로, 마지막 실제 단계를 active로 표시
+  const displayStage = currentStage === 5
+    ? (stageHistory.length > 0 ? stageHistory[stageHistory.length - 1].stage : 0)
+    : currentStage;
+  const maxStageReached = Math.max(...stageHistory.map(h => h.stage), displayStage);
   let html = '';
   for (let i = 0; i < 5; i++) {
     if (i > 0) {
@@ -466,13 +470,17 @@ function updateStageTimeline(currentStage) {
     }
     let dotClass = 'stage-dot';
     let labelClass = 'stage-label';
-    if (i === currentStage) {
+    if (i === displayStage) {
       dotClass += i === 2 ? ' fire-active' : ' active';
       labelClass += ' active';
     } else if (i < maxStageReached || stageHistory.some(h => h.stage === i)) {
       dotClass += ' done';
     }
     html += `<div style="text-align:center"><div class="${dotClass}"></div><div class="${labelClass}">${labels[i]}</div></div>`;
+  }
+  // PAUSED 상태일 때 배지 표시
+  if (currentStage === 5) {
+    html += '<div style="text-align:center;margin-left:8px"><div class="stage-dot fire-active" style="background:#f59e0b"></div><div class="stage-label active" style="color:#f59e0b">PAUSE</div></div>';
   }
   container.innerHTML = html;
 }

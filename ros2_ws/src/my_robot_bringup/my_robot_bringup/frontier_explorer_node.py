@@ -180,7 +180,8 @@ class FrontierExplorer(Node):
                 f'THERMAL {msg.severity.upper()}: {temp_c:.0f} C '
                 f'— exploration PAUSED')
             if self.nav_goal_handle:
-                self._goal_cancelled = True
+                with self._nav_lock:
+                    self._goal_cancelled = True
                 self.nav_goal_handle.cancel_goal_async()
             self.publish_status('paused_thermal')
 
