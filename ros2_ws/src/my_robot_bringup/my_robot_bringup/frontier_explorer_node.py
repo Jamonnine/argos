@@ -52,7 +52,7 @@ from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy, HistoryPo
 from nav_msgs.msg import OccupancyGrid
 from geometry_msgs.msg import PoseStamped
 from visualization_msgs.msg import Marker, MarkerArray
-from std_msgs.msg import String, ColorRGBA
+from std_msgs.msg import String, ColorRGBA, UInt32
 from std_srvs.srv import Trigger
 from nav2_msgs.action import NavigateToPose
 from my_robot_interfaces.msg import ThermalDetection
@@ -135,6 +135,8 @@ class FrontierExplorer(Node):
             String, 'exploration/status', 10)
         self.frontier_viz_pub = self.create_publisher(
             MarkerArray, 'exploration/frontiers_viz', 10)
+        self.frontier_count_pub = self.create_publisher(
+            UInt32, 'exploration/frontier_count', 10)
 
         # --- Services ---
         self.resume_srv = self.create_service(
@@ -217,6 +219,7 @@ class FrontierExplorer(Node):
 
         frontiers = self.detect_frontiers()
         self.publish_frontier_markers(frontiers)
+        self.frontier_count_pub.publish(UInt32(data=len(frontiers)))
 
         if not frontiers:
             self.no_frontier_count += 1
