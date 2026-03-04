@@ -17,7 +17,7 @@
 | MS-6 | Distributed exploration | Done |
 | MS-7 | Orchestrator node | Done |
 | MS-8 | Drone platform (heterogeneous) | Done |
-| MS-9 | Integration demo scenario | - |
+| MS-9 | Integration demo scenario | Done |
 | MS-10 | Web UI (rosbridge) | - |
 
 ## Architecture
@@ -71,6 +71,9 @@ ros2 launch argos_description navigation.launch.py explore:=true
 
 # Heterogeneous autonomous exploration (2 UGVs + 1 Drone)
 ros2 launch argos_description exploration.launch.py
+
+# Full fire response demo (auto scenario)
+ros2 launch argos_description demo.launch.py
 
 # Test patrol action
 ros2 run my_robot_bringup patrol_server &
