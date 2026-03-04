@@ -36,9 +36,9 @@ def generate_launch_description():
         description='Gazebo world file'
     )
 
-    # URDF → robot_description 파라미터
+    # URDF → robot_description 파라미터 (namespace 비어있음 = 단일 로봇)
     robot_description = ParameterValue(
-        Command(['xacro ', urdf_file, ' use_sim:=true']),
+        Command(['xacro ', urdf_file, ' use_sim:=true namespace:= robot_name:=argos_ugv']),
         value_type=str
     )
 

@@ -2,8 +2,11 @@
 # =========================
 # diff_drive_controller: 4WD 스킵 스티어
 # 좌/우 바퀴 쌍을 지정하면 4WD도 2WD와 동일하게 /cmd_vel로 제어 가능.
+#
+# 와일드카드(/**): 멀티로봇 네임스페이스 지원.
+# /argos1/controller_manager, /argos2/controller_manager 모두 이 설정 사용.
 
-controller_manager:
+/**/controller_manager:
   ros__parameters:
     update_rate: 50  # Hz
 
@@ -13,7 +16,7 @@ controller_manager:
     diff_drive_controller:
       type: diff_drive_controller/DiffDriveController
 
-diff_drive_controller:
+/**/diff_drive_controller:
   ros__parameters:
     # 좌측 바퀴 2개, 우측 바퀴 2개 → 4WD 스킵 스티어
     left_wheel_names:

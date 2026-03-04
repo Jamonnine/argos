@@ -7,7 +7,7 @@
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-  <xacro:macro name="argos_ros2_control" params="use_sim:='true'">
+  <xacro:macro name="argos_ros2_control" params="use_sim:='true' namespace:=''">
 
     <ros2_control name="ArgosSystem" type="system">
       <hardware>
@@ -66,6 +66,9 @@
       <gazebo>
         <plugin filename="gz_ros2_control-system" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
           <parameters>$(find argos_description)/config/controllers.yaml</parameters>
+          <ros>
+            <namespace>${namespace}</namespace>
+          </ros>
         </plugin>
       </gazebo>
     </xacro:if>
