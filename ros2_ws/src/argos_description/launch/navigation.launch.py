@@ -25,7 +25,6 @@ from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
     IncludeLaunchDescription,
-    ExecuteProcess,
     RegisterEventHandler,
     TimerAction,
 )
@@ -110,16 +109,18 @@ def generate_launch_description():
         output='screen',
     )
 
-    # --- 5. 컨트롤러 (이벤트 체이닝) ---
-    load_jsb = ExecuteProcess(
-        cmd=['ros2', 'control', 'load_controller', '--set-state', 'active',
-             'joint_state_broadcaster'],
+    # --- 5. 컨트롤러 (Node spawner — 멀티로봇 확장 대응) ---
+    jsb_spawner = Node(
+        package='controller_manager',
+        executable='spawner',
+        arguments=['joint_state_broadcaster'],
         output='screen',
     )
 
-    load_ddc = ExecuteProcess(
-        cmd=['ros2', 'control', 'load_controller', '--set-state', 'active',
-             'diff_drive_controller'],
+    ddc_spawner = Node(
+        package='controller_manager',
+        executable='spawner',
+        arguments=['diff_drive_controller'],
         output='screen',
     )
 
@@ -127,15 +128,15 @@ def generate_launch_description():
     jsb_after_spawn = RegisterEventHandler(
         event_handler=OnProcessExit(
             target_action=spawn_robot,
-            on_exit=[load_jsb],
+            on_exit=[jsb_spawner],
         )
     )
 
     # JSB 완료 → DDC 로드
     ddc_after_jsb = RegisterEventHandler(
         event_handler=OnProcessExit(
-            target_action=load_jsb,
-            on_exit=[load_ddc],
+            target_action=jsb_spawner,
+            on_exit=[ddc_spawner],
         )
     )
 
@@ -207,7 +208,7 @@ def generate_launch_description():
             'min_frontier_size': 8,
             'exclusion_radius': 2.0,
             'blacklist_radius': 1.0,
-            'exploration_rate': 1.0,
+            'exploration_rate': 0.5,  # exploration.launch.py와 통일
             'robot_name': '',
             'thermal_pause': True,
         }],

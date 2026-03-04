@@ -14,7 +14,6 @@ from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
     IncludeLaunchDescription,
-    ExecuteProcess,
     RegisterEventHandler,
 )
 from launch.event_handlers import OnProcessExit
@@ -88,17 +87,18 @@ def generate_launch_description():
         output='screen',
     )
 
-    # 컨트롤러: joint_state_broadcaster (먼저 로드)
-    load_jsb = ExecuteProcess(
-        cmd=['ros2', 'control', 'load_controller', '--set-state', 'active',
-             'joint_state_broadcaster'],
+    # 컨트롤러 (Node spawner — 멀티로봇 확장 대응 패턴 통일)
+    jsb_spawner = Node(
+        package='controller_manager',
+        executable='spawner',
+        arguments=['joint_state_broadcaster'],
         output='screen',
     )
 
-    # 컨트롤러: diff_drive_controller (JSB 다음에 로드)
-    load_ddc = ExecuteProcess(
-        cmd=['ros2', 'control', 'load_controller', '--set-state', 'active',
-             'diff_drive_controller'],
+    ddc_spawner = Node(
+        package='controller_manager',
+        executable='spawner',
+        arguments=['diff_drive_controller'],
         output='screen',
     )
 
@@ -106,15 +106,15 @@ def generate_launch_description():
     jsb_after_spawn = RegisterEventHandler(
         event_handler=OnProcessExit(
             target_action=spawn_robot,
-            on_exit=[load_jsb],
+            on_exit=[jsb_spawner],
         )
     )
 
     # JSB 로드 완료 후 DDC 로드 (순서 보장)
     ddc_after_jsb = RegisterEventHandler(
         event_handler=OnProcessExit(
-            target_action=load_jsb,
-            on_exit=[load_ddc],
+            target_action=jsb_spawner,
+            on_exit=[ddc_spawner],
         )
     )
 

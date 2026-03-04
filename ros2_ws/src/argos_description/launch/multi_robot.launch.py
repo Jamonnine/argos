@@ -54,9 +54,6 @@ def spawn_robot_group(robot_config, pkg_dir, urdf_file):
         value_type=str,
     )
 
-    # 브리지 설정 파일
-    bridge_config = os.path.join(pkg_dir, 'config', 'gz_bridge.yaml')
-
     # --- Robot State Publisher ---
     robot_state_publisher = Node(
         package='robot_state_publisher',
