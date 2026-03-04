@@ -206,11 +206,13 @@ class DroneController(Node):
         # --- 상태 전환 ---
         if self.state == 'taking_off':
             if abs(dz) < self.alt_tol:
-                self.state = 'hovering'
                 self.get_logger().info('Hovering at cruise altitude')
                 if self.waypoint_queue:
                     self.target_waypoint = self.waypoint_queue.pop(0)
                     self.state = 'flying'
+                else:
+                    self.state = 'hovering'
+                    self.target_waypoint = None
 
         elif self.state == 'flying':
             if h_dist < self.pos_tol and abs(dz) < self.alt_tol:
@@ -222,6 +224,7 @@ class DroneController(Node):
                     self.target_waypoint = self.waypoint_queue.pop(0)
                 else:
                     self.state = 'hovering'
+                    self.target_waypoint = None
                     self.get_logger().info(
                         'All waypoints completed — hovering')
 
