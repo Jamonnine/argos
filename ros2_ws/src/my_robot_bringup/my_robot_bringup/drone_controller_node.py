@@ -183,6 +183,18 @@ class DroneController(Node):
         cmd.linear.x = vx
         cmd.linear.y = vy
 
+        # --- Yaw 제어 (이동 방향으로 기수 정렬) ---
+        if h_dist > self.pos_tol:
+            target_yaw = math.atan2(dy, dx)
+            yaw_error = target_yaw - yaw
+            # -pi ~ pi 정규화
+            while yaw_error > math.pi:
+                yaw_error -= 2.0 * math.pi
+            while yaw_error < -math.pi:
+                yaw_error += 2.0 * math.pi
+            cmd.angular.z = self._clamp(
+                self.kp_yaw * yaw_error, -1.0, 1.0)
+
         self.cmd_pub.publish(cmd)
 
         # --- 상태 전환 ---
@@ -204,11 +216,10 @@ class DroneController(Node):
                     self.state = 'hovering'
 
         elif self.state == 'landing':
-            if z < 0.15:
+            if z < 0.2 and abs(dz) < 0.15:
                 self.state = 'grounded'
                 self.target_waypoint = None
                 self.get_logger().info('Landed')
-                # 정지 명령
                 self.cmd_pub.publish(Twist())
 
         self._publish_state()

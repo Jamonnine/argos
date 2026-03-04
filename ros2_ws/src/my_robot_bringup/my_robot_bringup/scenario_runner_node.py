@@ -61,7 +61,8 @@ class ScenarioRunner(Node):
 
         # --- State ---
         self.phase = self.WAIT_READY
-        self.start_time = None
+        self.start_time = None          # 시나리오 전체 시작
+        self.phase_start_time = None    # 현재 페이즈 시작
         self.mission_stage = MissionState.STAGE_INIT
 
         # --- Subscribers ---
@@ -119,7 +120,7 @@ class ScenarioRunner(Node):
 
         # --- Phase 1: 드론 이륙 + 웨이포인트 ---
         elif self.phase == self.DRONE_TAKEOFF:
-            if self._elapsed(now) > 8.0:
+            if self._phase_elapsed(now) > 8.0:
                 self._advance(self.EXPLORING)
                 self.get_logger().info(
                     'Sending drone patrol waypoints...')
@@ -127,8 +128,6 @@ class ScenarioRunner(Node):
 
         # --- Phase 2: 탐색 모니터링 ---
         elif self.phase == self.EXPLORING:
-            elapsed = self._elapsed(now)
-
             # 실제 화재 감지 (오케스트레이터가 전환)
             if self.mission_stage == MissionState.STAGE_FIRE_RESPONSE:
                 self._advance(self.FIRE_DETECTED)
@@ -136,15 +135,15 @@ class ScenarioRunner(Node):
                     'FIRE DETECTED by sensor pipeline!')
 
             # 시뮬레이션 화재 (타이머 기반)
-            elif self.simulate_fire and elapsed > self.fire_delay:
+            elif self.simulate_fire and self._phase_elapsed(now) > self.fire_delay:
                 self.get_logger().info(
-                    f'Simulating fire detection at {elapsed:.0f}s...')
+                    f'Simulating fire at {self._elapsed(now):.0f}s...')
                 self._simulate_fire()
                 self._advance(self.FIRE_DETECTED)
 
-        # --- Phase 3: 화재 대응 관찰 ---
+        # --- Phase 3: 화재 대응 15초 관찰 ---
         elif self.phase == self.FIRE_DETECTED:
-            if self._elapsed(now) > self.emergency_delay:
+            if self._phase_elapsed(now) > 15.0:
                 self._advance(self.EMERGENCY)
                 self.get_logger().info(
                     'EMERGENCY STOP: All units return!')
@@ -152,7 +151,7 @@ class ScenarioRunner(Node):
 
         # --- Phase 4: 긴급 정지 10초 유지 ---
         elif self.phase == self.EMERGENCY:
-            if self._elapsed(now) > self.emergency_delay + 10.0:
+            if self._phase_elapsed(now) > 10.0:
                 self._advance(self.RESUME)
                 self.get_logger().info(
                     'Resuming operations...')
@@ -160,15 +159,15 @@ class ScenarioRunner(Node):
 
         # --- Phase 5: 재개 후 10초 대기 ---
         elif self.phase == self.RESUME:
-            if self._elapsed(now) > self.emergency_delay + 20.0:
+            if self._phase_elapsed(now) > 10.0:
                 self._advance(self.LANDING)
                 self.get_logger().info(
                     'Mission complete. Landing drone...')
                 self._call_service(self.land_client, 'Drone land')
 
-        # --- Phase 6: 착륙 대기 ---
+        # --- Phase 6: 착륙 대기 10초 ---
         elif self.phase == self.LANDING:
-            if self._elapsed(now) > self.emergency_delay + 30.0:
+            if self._phase_elapsed(now) > 10.0:
                 self._advance(self.COMPLETE)
                 self.get_logger().info('=' * 55)
                 self.get_logger().info(
@@ -184,10 +183,17 @@ class ScenarioRunner(Node):
             return 0.0
         return (now - self.start_time).nanoseconds / 1e9
 
+    def _phase_elapsed(self, now):
+        """현재 페이즈 시작으로부터의 상대 경과 시간."""
+        if self.phase_start_time is None:
+            return 0.0
+        return (now - self.phase_start_time).nanoseconds / 1e9
+
     def _advance(self, new_phase):
         self.get_logger().info(
             f'[Phase {new_phase}] {self.PHASE_NAMES[new_phase]}')
         self.phase = new_phase
+        self.phase_start_time = self.get_clock().now()
 
     def _call_service(self, client, name):
         if not client.service_is_ready():

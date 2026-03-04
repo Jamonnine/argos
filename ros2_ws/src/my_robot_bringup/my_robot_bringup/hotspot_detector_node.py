@@ -9,10 +9,10 @@ L8 카메라 특성:
   - 절대 온도 ≈ 픽셀값 × resolution(3.0 K) + min_temp
   - 정규화 때문에 고정 임계값 대신 적응형(상위 N%) 방식 사용
 
-토픽:
-  구독: /thermal/image_raw (sensor_msgs/Image, mono8)
-  발행: /thermal/detections (ThermalDetection[])
-        /thermal/hotspot_viz (sensor_msgs/Image, 디버그 시각화)
+토픽 (상대경로 — 네임스페이스 자동 적용):
+  구독: thermal/image_raw (sensor_msgs/Image, mono8)
+  발행: thermal/detections (ThermalDetection[])
+        thermal/hotspot_viz (sensor_msgs/Image, 디버그 시각화)
 """
 
 import numpy as np
@@ -67,13 +67,13 @@ class HotspotDetectorNode(Node):
 
         # --- 구독/발행 ---
         self.sub_thermal = self.create_subscription(
-            Image, '/thermal/image_raw', self.thermal_callback, sensor_qos)
+            Image, 'thermal/image_raw', self.thermal_callback, sensor_qos)
 
         self.pub_detection = self.create_publisher(
-            ThermalDetection, '/thermal/detections', 10)
+            ThermalDetection, 'thermal/detections', 10)
 
         self.pub_viz = self.create_publisher(
-            Image, '/thermal/hotspot_viz', sensor_qos)
+            Image, 'thermal/hotspot_viz', sensor_qos)
 
         self.get_logger().info(
             f'Hotspot detector started (top {self.top_percent*100:.0f}%, '

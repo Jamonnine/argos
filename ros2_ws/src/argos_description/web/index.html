@@ -221,34 +221,46 @@ ros.on('close', () => {
 });
 
 // ─────────────── Subscriptions ───────────────
+let activeSubscriptions = [];
+
 function subscribe() {
+  // 기존 구독 해제 (재연결 시 중복 방지)
+  activeSubscriptions.forEach(topic => topic.unsubscribe());
+  activeSubscriptions = [];
+
   // Mission State (2 Hz from orchestrator)
-  new ROSLIB.Topic({
+  const missionTopic = new ROSLIB.Topic({
     ros, name: '/orchestrator/mission_state',
     messageType: 'my_robot_interfaces/MissionState'
-  }).subscribe(msg => {
+  });
+  missionTopic.subscribe(msg => {
     missionState = msg;
     updateMissionPanel(msg);
   });
+  activeSubscriptions.push(missionTopic);
 
   // Robot Status (per-robot, 2 Hz each)
-  new ROSLIB.Topic({
+  const statusTopic = new ROSLIB.Topic({
     ros, name: '/orchestrator/robot_status',
     messageType: 'my_robot_interfaces/RobotStatus'
-  }).subscribe(msg => {
+  });
+  statusTopic.subscribe(msg => {
     robots[msg.robot_id] = msg;
     updateRobotTable();
   });
+  activeSubscriptions.push(statusTopic);
 
   // Fire Alerts
-  new ROSLIB.Topic({
+  const fireTopic = new ROSLIB.Topic({
     ros, name: '/orchestrator/fire_alert',
     messageType: 'my_robot_interfaces/FireAlert'
-  }).subscribe(msg => {
+  });
+  fireTopic.subscribe(msg => {
     fireAlerts.unshift(msg);
     if (fireAlerts.length > 20) fireAlerts.pop();
     updateFireLog();
   });
+  activeSubscriptions.push(fireTopic);
 }
 
 // ─────────────── Service Calls ───────────────
@@ -286,8 +298,9 @@ function updateRobotTable() {
   for (const [id, r] of Object.entries(robots)) {
     const stateIdx = r.state || 0;
     const typeBadge = r.robot_type === 'drone' ? 'drone-badge' : 'ugv-badge';
-    const pos = r.pose && r.pose.position
-      ? `(${r.pose.position.x.toFixed(1)}, ${r.pose.position.y.toFixed(1)})`
+    const p = r.pose && r.pose.pose && r.pose.pose.position;
+    const pos = p
+      ? `(${p.x.toFixed(1)}, ${p.y.toFixed(1)})`
       : '(?, ?)';
     tbody.innerHTML += `<tr>
       <td><strong>${id}</strong></td>
@@ -416,9 +429,9 @@ function drawMap() {
 
   // Robots
   for (const [id, r] of Object.entries(robots)) {
-    if (!r.pose || !r.pose.position) continue;
-    const rx = ox + r.pose.position.x * scale;
-    const ry = oy + (MAP_H - r.pose.position.y) * scale;
+    if (!r.pose || !r.pose.pose || !r.pose.pose.position) continue;
+    const rx = ox + r.pose.pose.position.x * scale;
+    const ry = oy + (MAP_H - r.pose.pose.position.y) * scale;
     const isDrone = r.robot_type === 'drone';
 
     // Robot body

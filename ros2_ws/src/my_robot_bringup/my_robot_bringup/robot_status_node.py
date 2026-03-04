@@ -35,15 +35,18 @@ class RobotStatusPublisher(Node):
         self.declare_parameter('robot_id', '')
         self.declare_parameter('robot_type', 'ugv')
         self.declare_parameter('capabilities', ['thermal', 'lidar', 'depth', 'imu'])
+        self.declare_parameter('battery_drain_rate', 0.02)  # %/초 (시뮬레이션 감쇠)
         self.declare_parameter('use_sim_time', True)
 
         self.robot_id = self.get_parameter('robot_id').value
         self.robot_type = self.get_parameter('robot_type').value
         self.capabilities = self.get_parameter('capabilities').value
+        self.drain_rate = self.get_parameter('battery_drain_rate').value
 
         # --- State ---
         self.exploration_status = 'idle'
-        self.battery = 100.0  # 시뮬레이션에서는 고정
+        self.battery = 100.0
+        self.battery_start_time = self.get_clock().now()
 
         # --- TF2 ---
         self.tf_buffer = Buffer()
@@ -127,6 +130,9 @@ class RobotStatusPublisher(Node):
         if pose:
             msg.pose = pose
 
+        # 배터리: 시간 기반 선형 감쇠
+        elapsed = (self.get_clock().now() - self.battery_start_time).nanoseconds / 1e9
+        self.battery = max(0.0, 100.0 - self.drain_rate * elapsed)
         msg.battery_percent = self.battery
         msg.current_mission = self.exploration_status
         msg.capabilities = self.capabilities
@@ -137,7 +143,7 @@ class RobotStatusPublisher(Node):
         """TF2로 맵 내 로봇 위치 조회."""
         try:
             t = self.tf_buffer.lookup_transform(
-                'map', 'base_link', rclpy.time.Time())
+                'map', 'base_footprint', rclpy.time.Time())
             pose = PoseStamped()
             pose.header = t.header
             pose.pose.position.x = t.transform.translation.x

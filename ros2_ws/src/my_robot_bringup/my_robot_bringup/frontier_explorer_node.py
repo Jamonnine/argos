@@ -38,6 +38,7 @@ Nav2 NavigateToPose 액션으로 자율 탐색을 수행한다.
 """
 
 import math
+import threading
 import numpy as np
 import cv2
 
@@ -88,6 +89,8 @@ class FrontierExplorer(Node):
         self.exploration_complete = False
         self.nav_goal_handle = None
         self.no_frontier_count = 0      # 연속 프론티어 미발견 횟수
+        self.nav_server_ready = False   # Nav2 서버 가용 플래그
+        self._nav_lock = threading.Lock()  # navigating 상태 보호
 
         # --- TF2 (로봇 위치 조회) ---
         self.tf_buffer = Buffer()
@@ -127,6 +130,10 @@ class FrontierExplorer(Node):
             self, NavigateToPose, 'navigate_to_pose',
             callback_group=cb_group)
 
+        # --- Nav2 서버 체크 타이머 (블로킹 방지) ---
+        self.server_check_timer = self.create_timer(
+            2.0, self._check_nav_server)
+
         # --- Timer ---
         self.explore_timer = self.create_timer(
             1.0 / exploration_rate, self.explore_cycle)
@@ -152,11 +159,13 @@ class FrontierExplorer(Node):
             self.publish_status('paused_thermal')
 
     def peer_target_callback(self, msg: PoseStamped):
-        """다른 로봇의 탐색 대상 수신."""
+        """다른 로봇의 탐색 대상 수신 (자기 자신 필터링)."""
         peer = msg.header.frame_id
-        if peer and peer != (self.robot_name or 'default'):
-            self.other_targets[peer] = (
-                msg.pose.position.x, msg.pose.position.y)
+        my_name = self.robot_name or self.get_name()
+        if not peer or peer == my_name:
+            return  # 자기 자신이 발행한 메시지 무시
+        self.other_targets[peer] = (
+            msg.pose.position.x, msg.pose.position.y)
 
     def resume_callback(self, request, response):
         """탐색 재개 서비스."""
@@ -171,14 +180,24 @@ class FrontierExplorer(Node):
             response.message = 'Not paused'
         return response
 
+    # ─────────────────── Nav2 Server Check ───────────────────
+
+    def _check_nav_server(self):
+        """Nav2 액션 서버 가용성을 비블로킹으로 체크."""
+        if self.nav_client.server_is_ready():
+            self.nav_server_ready = True
+            self.server_check_timer.cancel()
+            self.get_logger().info('Nav2 action server available')
+
     # ─────────────────── Core Loop ───────────────────
 
     def explore_cycle(self):
         """주기적 프론티어 탐색 사이클."""
         if self.current_map is None or self.paused or self.exploration_complete:
             return
-        if self.navigating:
-            return
+        with self._nav_lock:
+            if self.navigating:
+                return
 
         frontiers = self.detect_frontiers()
         self.publish_frontier_markers(frontiers)
@@ -276,10 +295,15 @@ class FrontierExplorer(Node):
     # ─────────────────── Navigation ───────────────────
 
     def send_nav_goal(self, target):
-        """Nav2 NavigateToPose 목표 전송."""
+        """Nav2 NavigateToPose 목표 전송 (비블로킹)."""
+        if not self.nav_server_ready:
+            self.get_logger().warn('Nav2 server not yet available')
+            return
+
         tx, ty = target
-        self.current_goal = target
-        self.navigating = True
+        with self._nav_lock:
+            self.current_goal = target
+            self.navigating = True
 
         goal_msg = NavigateToPose.Goal()
         goal_msg.pose.header.frame_id = 'map'
@@ -293,16 +317,11 @@ class FrontierExplorer(Node):
 
         # 멀티로봇 대상 공유
         target_msg = PoseStamped()
-        target_msg.header.frame_id = self.robot_name or 'default'
+        target_msg.header.frame_id = self.robot_name or self.get_name()
         target_msg.header.stamp = self.get_clock().now().to_msg()
         target_msg.pose.position.x = tx
         target_msg.pose.position.y = ty
         self.target_pub.publish(target_msg)
-
-        if not self.nav_client.wait_for_server(timeout_sec=5.0):
-            self.get_logger().warn('Nav2 action server not available')
-            self.navigating = False
-            return
 
         future = self.nav_client.send_goal_async(
             goal_msg, feedback_callback=self._nav_feedback)
@@ -312,8 +331,9 @@ class FrontierExplorer(Node):
         goal_handle = future.result()
         if not goal_handle.accepted:
             self.get_logger().warn('Nav2 goal rejected — blacklisting')
-            self.blacklisted.append(self.current_goal)
-            self.navigating = False
+            with self._nav_lock:
+                self.blacklisted.append(self.current_goal)
+                self.navigating = False
             return
 
         self.nav_goal_handle = goal_handle
@@ -325,18 +345,25 @@ class FrontierExplorer(Node):
 
     def _nav_result(self, future):
         result = future.result()
-        # status 4 = SUCCEEDED
-        if result.status == 4:
-            self.get_logger().info(
-                f'Reached frontier ({self.current_goal[0]:.1f}, '
-                f'{self.current_goal[1]:.1f})')
-        else:
-            self.get_logger().warn(
-                f'Nav failed (status={result.status}) — blacklisting')
+        with self._nav_lock:
+            if self.current_goal is None:
+                self.navigating = False
+                self.nav_goal_handle = None
+                return
 
-        self.blacklisted.append(self.current_goal)
-        self.navigating = False
-        self.nav_goal_handle = None
+            # status 4 = SUCCEEDED
+            if result.status == 4:
+                self.get_logger().info(
+                    f'Reached frontier ({self.current_goal[0]:.1f}, '
+                    f'{self.current_goal[1]:.1f})')
+            else:
+                self.get_logger().warn(
+                    f'Nav failed (status={result.status}) — blacklisting')
+
+            self.blacklisted.append(self.current_goal)
+            self.current_goal = None
+            self.navigating = False
+            self.nav_goal_handle = None
 
     # ─────────────────── Helpers ───────────────────
 
@@ -344,7 +371,7 @@ class FrontierExplorer(Node):
         """TF2로 로봇의 map 프레임 내 위치 조회."""
         try:
             t = self.tf_buffer.lookup_transform(
-                'map', 'base_link', rclpy.time.Time())
+                'map', 'base_footprint', rclpy.time.Time())
             return (t.transform.translation.x, t.transform.translation.y)
         except Exception:
             if self.current_goal:

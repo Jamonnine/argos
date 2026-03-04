@@ -25,6 +25,7 @@ ARGOS Orchestrator Node (MS-7)
 """
 
 import time
+from collections import deque
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import (
@@ -36,7 +37,7 @@ from rclpy.qos import (
 from rclpy.callback_groups import ReentrantCallbackGroup
 
 from std_srvs.srv import Trigger
-from geometry_msgs.msg import Point
+from geometry_msgs.msg import Point, Twist
 from my_robot_interfaces.msg import RobotStatus, FireAlert, MissionState
 
 
@@ -77,9 +78,10 @@ class OrchestratorNode(Node):
         # --- State ---
         self.stage = MissionState.STAGE_INIT
         self.robots = {}  # {robot_id: RobotRecord}
-        self.fire_alerts = []  # [FireAlert, ...]
+        self.fire_alerts = deque(maxlen=100)  # 최신 100개만 유지
         self.start_time = self.get_clock().now()
         self.paused = False
+        self.robot_stop_pubs = {}  # emergency_stop용 cmd_vel 발행자
 
         # 예상 로봇 사전 등록
         for rid in expected:
@@ -171,12 +173,18 @@ class OrchestratorNode(Node):
             self.get_logger().warn('Stage → FIRE_RESPONSE')
 
     def emergency_stop_callback(self, request, response):
-        """긴급 정지 — 전원 즉시 귀환."""
+        """긴급 정지 — 모든 로봇에 영속도 명령 + 귀환 전환."""
         self.stage = MissionState.STAGE_RETURNING
         self.paused = True
-        self.get_logger().warn('EMERGENCY STOP — all robots returning')
+        # 모든 로봇에 정지 명령 (cmd_vel = 0)
+        for rid in self.robots:
+            if rid not in self.robot_stop_pubs:
+                self.robot_stop_pubs[rid] = self.create_publisher(
+                    Twist, f'/{rid}/cmd_vel', 10)
+            self.robot_stop_pubs[rid].publish(Twist())
+        self.get_logger().warn('EMERGENCY STOP — all robots stopped')
         response.success = True
-        response.message = 'Emergency stop issued. All robots returning.'
+        response.message = 'Emergency stop issued. All robots stopped.'
         return response
 
     def resume_callback(self, request, response):
@@ -253,7 +261,7 @@ class OrchestratorNode(Node):
         active_coverages = [
             r.coverage for r in self.robots.values() if not r.comm_lost]
         if active_coverages:
-            msg.overall_coverage_percent = max(active_coverages)
+            msg.overall_coverage_percent = sum(active_coverages) / len(active_coverages)
 
         # 화점
         active_fires = [f for f in self.fire_alerts if f.active]
