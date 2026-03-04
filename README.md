@@ -18,7 +18,7 @@
 | MS-7 | Orchestrator node | Done |
 | MS-8 | Drone platform (heterogeneous) | Done |
 | MS-9 | Integration demo scenario | Done |
-| MS-10 | Web UI (rosbridge) | - |
+| MS-10 | Web UI (rosbridge) | Done |
 
 ## Architecture
 
@@ -38,6 +38,7 @@ Platform (Drone | UGV | Legged) — same interface upward
 - **Gazebo Harmonic** + ros_gz bridge
 - **ros2_control** + diff_drive_controller (4WD skid-steer)
 - **Nav2** + slam_toolbox
+- **rosbridge_server** + roslibjs (web dashboard)
 - **Zenoh** (planned, for degraded WiFi environments)
 
 ## Packages
@@ -74,6 +75,12 @@ ros2 launch argos_description exploration.launch.py
 
 # Full fire response demo (auto scenario)
 ros2 launch argos_description demo.launch.py
+
+# Web monitoring dashboard (requires: sudo apt install ros-jazzy-rosbridge-server)
+ros2 launch argos_description monitor.launch.py
+# Then: cd $(ros2 pkg prefix argos_description)/share/argos_description/web
+#       python3 -m http.server 8080
+#       Open http://localhost:8080
 
 # Test patrol action
 ros2 run my_robot_bringup patrol_server &
