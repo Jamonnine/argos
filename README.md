@@ -14,7 +14,7 @@
 | MS-3 | Nav2 + SLAM integration | Done |
 | MS-4 | Thermal camera simulation | Done |
 | MS-5 | Multi-robot namespace separation | Done |
-| MS-6 | Distributed exploration | - |
+| MS-6 | Distributed exploration | Done |
 | MS-7 | Orchestrator node | - |
 | MS-8 | Drone platform (heterogeneous) | - |
 | MS-9 | Integration demo scenario | - |
@@ -65,6 +65,12 @@ ros2 launch argos_description navigation.launch.py
 
 # Multi-robot simulation (2 UGVs)
 ros2 launch argos_description multi_robot.launch.py
+
+# Autonomous frontier exploration (single robot)
+ros2 launch argos_description navigation.launch.py explore:=true
+
+# Multi-robot autonomous exploration (2 UGVs)
+ros2 launch argos_description exploration.launch.py
 
 # Test patrol action
 ros2 run my_robot_bringup patrol_server &

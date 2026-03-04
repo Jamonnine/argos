@@ -224,6 +224,21 @@ def exploration_robot_group(robot_config, pkg_dir, urdf_file, nav2_bringup_dir, 
         ],
     )
 
+    # --- Robot Status Publisher (오케스트레이터에 상태 보고) ---
+    robot_status_pub = Node(
+        package='my_robot_bringup',
+        executable='robot_status',
+        name='robot_status_publisher',
+        namespace=name,
+        parameters=[{
+            'use_sim_time': True,
+            'robot_id': name,
+            'robot_type': 'ugv',
+            'capabilities': ['thermal', 'lidar', 'depth', 'imu'],
+        }],
+        output='screen',
+    )
+
     return [
         robot_state_publisher,
         spawn_robot,
@@ -235,6 +250,7 @@ def exploration_robot_group(robot_config, pkg_dir, urdf_file, nav2_bringup_dir, 
         nav2_bringup,
         hotspot_detector,
         frontier_explorer,
+        robot_status_pub,
     ]
 
 
@@ -263,6 +279,23 @@ def generate_launch_description():
         }.items(),
     )
 
+    # --- 오케스트레이터 (중앙 지휘 — 20초 지연: 로봇 초기화 대기) ---
+    orchestrator = TimerAction(
+        period=20.0,
+        actions=[
+            Node(
+                package='my_robot_bringup',
+                executable='orchestrator',
+                name='orchestrator',
+                parameters=[{
+                    'use_sim_time': True,
+                    'expected_robots': [r['name'] for r in ROBOTS],
+                }],
+                output='screen',
+            ),
+        ],
+    )
+
     # --- 각 로봇 전체 스택 ---
     all_entities = [world_arg, gazebo]
     for robot in ROBOTS:
@@ -270,5 +303,6 @@ def generate_launch_description():
             exploration_robot_group(
                 robot, pkg_dir, urdf_file, nav2_bringup_dir, nav2_params)
         )
+    all_entities.append(orchestrator)
 
     return LaunchDescription(all_entities)

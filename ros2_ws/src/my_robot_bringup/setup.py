@@ -43,6 +43,8 @@ setup(
             'patrol_client = my_robot_bringup.patrol_action_client:main',
             'hotspot_detector = my_robot_bringup.hotspot_detector_node:main',
             'frontier_explorer = my_robot_bringup.frontier_explorer_node:main',
+            'orchestrator = my_robot_bringup.orchestrator_node:main',
+            'robot_status = my_robot_bringup.robot_status_node:main',
         ],
     },
 )
