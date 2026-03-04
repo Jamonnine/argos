@@ -42,6 +42,10 @@
     </joint>
 
     <gazebo reference="${camera_name}_link">
+      <material>
+        <ambient>0.7 0.7 0.7 1.0</ambient>
+        <diffuse>0.7 0.7 0.7 1.0</diffuse>
+      </material>
       <sensor name="${camera_name}" type="depth_camera">
         <always_on>true</always_on>
         <update_rate>15</update_rate>

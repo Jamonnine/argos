@@ -10,7 +10,7 @@
 | Milestone | Description | Status |
 |-----------|-------------|--------|
 | MS-1 | PatrolArea Action Server/Client | Done |
-| MS-2 | ARGOS UGV URDF (xacro modular) | Done (build pending) |
+| MS-2 | ARGOS UGV URDF (xacro modular) | Done |
 | MS-3 | Nav2 + SLAM integration | - |
 | MS-4 | Thermal camera simulation | - |
 | MS-5 | Multi-robot namespace separation | - |

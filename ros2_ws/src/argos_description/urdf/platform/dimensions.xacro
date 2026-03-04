@@ -29,8 +29,10 @@
   <xacro:property name="wheel_x_offset"  value="0.20"/>
   <xacro:property name="wheel_y_offset"  value="${base_width / 2 + wheel_width / 2 + 0.01}"/>
 
-  <!-- ========== 센서 마운트 높이 ========== -->
-  <!-- base_link 위 센서 플랫폼 -->
+  <!-- ========== 센서 플랫폼 ========== -->
+  <!-- base_link 위 센서 마운트 상판 -->
+  <xacro:property name="sensor_platform_length" value="0.30"/>
+  <xacro:property name="sensor_platform_width"  value="0.30"/>
   <xacro:property name="sensor_platform_height" value="0.05"/>
   <xacro:property name="sensor_platform_z"       value="${base_height / 2 + sensor_platform_height / 2}"/>
 

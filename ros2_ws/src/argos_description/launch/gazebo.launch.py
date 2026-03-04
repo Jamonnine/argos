@@ -102,6 +102,14 @@ def generate_launch_description():
         output='screen',
     )
 
+    # 스폰 완료 후 JSB 로드 (gz_ros2_control이 controller_manager를 먼저 초기화해야 함)
+    jsb_after_spawn = RegisterEventHandler(
+        event_handler=OnProcessExit(
+            target_action=spawn_robot,
+            on_exit=[load_jsb],
+        )
+    )
+
     # JSB 로드 완료 후 DDC 로드 (순서 보장)
     ddc_after_jsb = RegisterEventHandler(
         event_handler=OnProcessExit(
@@ -116,6 +124,6 @@ def generate_launch_description():
         gazebo,
         spawn_robot,
         gz_bridge,
-        load_jsb,
+        jsb_after_spawn,
         ddc_after_jsb,
     ])

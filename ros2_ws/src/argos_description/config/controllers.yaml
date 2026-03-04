@@ -23,8 +23,8 @@ diff_drive_controller:
       - "front_right_wheel_joint"
       - "rear_right_wheel_joint"
 
-    # 바퀴 간격 (좌-우 중심 거리)
-    wheel_separation: 0.46  # base_width + wheel_width + gap
+    # 바퀴 간격 (좌-우 중심 거리) = 2 × wheel_y_offset = 2 × 0.235
+    wheel_separation: 0.47
 
     # 바퀴 반경
     wheel_radius: 0.10

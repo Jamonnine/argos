@@ -76,16 +76,16 @@
   <link name="sensor_platform_link">
     <visual>
       <geometry>
-        <box size="0.30 0.30 ${sensor_platform_height}"/>
+        <box size="${sensor_platform_length} ${sensor_platform_width} ${sensor_platform_height}"/>
       </geometry>
       <material name="argos_dark"/>
     </visual>
     <collision>
       <geometry>
-        <box size="0.30 0.30 ${sensor_platform_height}"/>
+        <box size="${sensor_platform_length} ${sensor_platform_width} ${sensor_platform_height}"/>
       </geometry>
     </collision>
-    <xacro:box_inertia m="0.5" x="0.30" y="0.30" z="${sensor_platform_height}"/>
+    <xacro:box_inertia m="0.5" x="${sensor_platform_length}" y="${sensor_platform_width}" z="${sensor_platform_height}"/>
   </link>
 
   <joint name="sensor_platform_joint" type="fixed">
