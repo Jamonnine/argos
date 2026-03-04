@@ -48,6 +48,9 @@ class RobotStatusPublisher(Node):
         self.declare_parameter('use_sim_time', True)
 
         self.robot_id = self.get_parameter('robot_id').value
+        if not self.robot_id:
+            self.get_logger().error(
+                'robot_id 파라미터가 비어있음! launch 파일 확인 필요')
         self.robot_type = self.get_parameter('robot_type').value
         self.capabilities = self.get_parameter('capabilities').value
         self.drain_rate = self.get_parameter('battery_drain_rate').value
