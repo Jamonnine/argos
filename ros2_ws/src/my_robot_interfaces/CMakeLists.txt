@@ -12,6 +12,7 @@ find_package(sensor_msgs REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/DetectedObject.msg"
   "msg/DetectionArray.msg"
+  "msg/ThermalDetection.msg"
   "srv/NavigateToObject.srv"
   "action/MoveToTarget.action"
   "action/PatrolArea.action"

@@ -59,6 +59,7 @@
           <image>
             <width>160</width>
             <height>120</height>
+            <format>L8</format>
           </image>
           <clip>
             <near>0.1</near>

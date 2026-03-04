@@ -29,6 +29,9 @@
   <exec_depend>nav2_bringup</exec_depend>
   <exec_depend>slam_toolbox</exec_depend>
 
+  <!-- Topic relay (cmd_vel / odom routing) -->
+  <exec_depend>topic_tools</exec_depend>
+
   <exec_depend>rviz2</exec_depend>
 
   <export>

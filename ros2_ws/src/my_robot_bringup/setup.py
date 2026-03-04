@@ -41,6 +41,7 @@ setup(
             'qos_demo = my_robot_bringup.qos_demo_node:main',
             'patrol_server = my_robot_bringup.patrol_action_server:main',
             'patrol_client = my_robot_bringup.patrol_action_client:main',
+            'hotspot_detector = my_robot_bringup.hotspot_detector_node:main',
         ],
     },
 )

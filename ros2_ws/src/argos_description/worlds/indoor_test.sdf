@@ -47,6 +47,11 @@
     <plugin filename="gz-sim-imu-system"
             name="gz::sim::systems::Imu"/>
 
+    <!-- 대기 온도 (열화상 배경 기준) -->
+    <atmosphere type="adiabatic">
+      <temperature>293.15</temperature>  <!-- 20°C -->
+    </atmosphere>
+
     <!-- 물리 엔진 설정 -->
     <physics name="default_physics" type="ode">
       <max_step_size>0.001</max_step_size>
@@ -340,6 +345,75 @@
           </material>
         </visual>
       </link>
+    </model>
+
+    <!-- ===== 열원 (열화상 카메라 테스트용) ===== -->
+
+    <!-- 방 A 화재 열원 (주 화점: 쓰러진 선반 근처) -->
+    <!-- 600°C = 873.15 K: 초기 화재 온도 수준 -->
+    <model name="fire_source_a">
+      <static>true</static>
+      <pose>1.5 6.8 0.5 0 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <box><size>0.4 0.4 1.0</size></box>
+          </geometry>
+          <material>
+            <ambient>1.0 0.3 0.0 1</ambient>
+            <diffuse>1.0 0.3 0.0 1</diffuse>
+          </material>
+        </visual>
+      </link>
+      <plugin filename="gz-sim-thermal-system"
+              name="gz::sim::systems::Thermal">
+        <temperature>873.15</temperature>
+      </plugin>
+    </model>
+
+    <!-- 방 A 확산 열원 (벽면 복사열: 200°C) -->
+    <model name="heat_wall_a">
+      <static>true</static>
+      <pose>0.5 7.5 1.0 0 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <box><size>0.8 0.1 1.5</size></box>
+          </geometry>
+          <material>
+            <ambient>0.8 0.4 0.1 1</ambient>
+            <diffuse>0.8 0.4 0.1 1</diffuse>
+          </material>
+        </visual>
+      </link>
+      <plugin filename="gz-sim-thermal-system"
+              name="gz::sim::systems::Thermal">
+        <temperature>473.15</temperature>
+      </plugin>
+    </model>
+
+    <!-- 복도 온수 파이프 (60°C: 약한 열 시그니처, 오탐 테스트용) -->
+    <model name="hot_pipe_corridor">
+      <static>true</static>
+      <pose>5.0 7.0 0.3 0 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <cylinder>
+              <radius>0.05</radius>
+              <length>3.0</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.6 0.6 0.6 1</ambient>
+            <diffuse>0.6 0.6 0.6 1</diffuse>
+          </material>
+        </visual>
+      </link>
+      <plugin filename="gz-sim-thermal-system"
+              name="gz::sim::systems::Thermal">
+        <temperature>333.15</temperature>
+      </plugin>
     </model>
 
   </world>

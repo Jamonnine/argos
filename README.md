@@ -11,8 +11,8 @@
 |-----------|-------------|--------|
 | MS-1 | PatrolArea Action Server/Client | Done |
 | MS-2 | ARGOS UGV URDF (xacro modular) | Done |
-| MS-3 | Nav2 + SLAM integration | - |
-| MS-4 | Thermal camera simulation | - |
+| MS-3 | Nav2 + SLAM integration | Done |
+| MS-4 | Thermal camera simulation | Done |
 | MS-5 | Multi-robot namespace separation | - |
 | MS-6 | Distributed exploration | - |
 | MS-7 | Orchestrator node | - |
@@ -59,6 +59,9 @@ ros2 launch argos_description display.launch.py
 
 # Simulate in Gazebo
 ros2 launch argos_description gazebo.launch.py
+
+# Navigation + SLAM + Thermal detection
+ros2 launch argos_description navigation.launch.py
 
 # Test patrol action
 ros2 run my_robot_bringup patrol_server &

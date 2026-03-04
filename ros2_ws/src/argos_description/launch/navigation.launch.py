@@ -1,15 +1,17 @@
 """
-ARGOS UGV Navigation Launch (Gazebo + Nav2 + SLAM)
-===================================================
-하나의 launch로 전체 네비게이션 스택 실행:
-  Gazebo(월드+로봇) → 컨트롤러 → SLAM → Nav2
+ARGOS UGV Navigation Launch (Gazebo + Nav2 + SLAM + Thermal)
+=============================================================
+하나의 launch로 전체 네비게이션 + 열화상 감지 스택 실행:
+  Gazebo(월드+로봇) → 컨트롤러 → SLAM → Nav2 → 화점 감지
 
 실행 순서 (이벤트 체이닝):
   1. Gazebo 시뮬레이션 + robot_state_publisher
   2. 로봇 스폰 (create)
   3. 스폰 완료 → joint_state_broadcaster 로드
   4. JSB 완료 → diff_drive_controller 로드
-  5. Nav2 bringup (slam=True) — Gazebo /clock 이후 시작
+  5. 토픽 릴레이 (cmd_vel / odom 라우팅)
+  6. Nav2 bringup (slam=True) — Gazebo /clock 이후 시작
+  7. Hotspot detector — 열화상 화점 감지
 
 사용법:
   ros2 launch argos_description navigation.launch.py
@@ -129,7 +131,29 @@ def generate_launch_description():
         )
     )
 
-    # --- 6. Nav2 + SLAM ---
+    # --- 6. 토픽 릴레이 (diff_drive_controller 네임스페이스 ↔ 표준 토픽) ---
+    # diff_drive_controller는 /diff_drive_controller/cmd_vel을 구독하지만,
+    # Nav2는 /cmd_vel로 퍼블리시 → 릴레이 필수.
+    cmd_vel_relay = Node(
+        package='topic_tools',
+        executable='relay',
+        name='cmd_vel_relay',
+        arguments=['/cmd_vel', '/diff_drive_controller/cmd_vel'],
+        parameters=[{'use_sim_time': True}],
+        output='screen',
+    )
+
+    # diff_drive_controller의 /diff_drive_controller/odom → 표준 /odom
+    odom_relay = Node(
+        package='topic_tools',
+        executable='relay',
+        name='odom_relay',
+        arguments=['/diff_drive_controller/odom', '/odom'],
+        parameters=[{'use_sim_time': True}],
+        output='screen',
+    )
+
+    # --- 7. Nav2 + SLAM ---
     # Gazebo가 /clock 퍼블리시를 시작한 뒤에 Nav2를 기동해야 함.
     # TimerAction으로 5초 지연 (Gazebo 초기화 대기).
     nav2_bringup = TimerAction(
@@ -150,6 +174,21 @@ def generate_launch_description():
         ],
     )
 
+    # --- 8. 열화상 화점 감지 ---
+    hotspot_detector = Node(
+        package='my_robot_bringup',
+        executable='hotspot_detector',
+        name='hotspot_detector',
+        parameters=[{
+            'use_sim_time': True,
+            'top_percent': 0.05,
+            'min_area': 20,
+            'l8_resolution': 3.0,
+            'l8_min_temp': 253.15,
+        }],
+        output='screen',
+    )
+
     return LaunchDescription([
         world_arg,
         robot_state_publisher,
@@ -158,5 +197,8 @@ def generate_launch_description():
         gz_bridge,
         jsb_after_spawn,
         ddc_after_jsb,
+        cmd_vel_relay,
+        odom_relay,
         nav2_bringup,
+        hotspot_detector,
     ])
