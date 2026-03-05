@@ -242,7 +242,7 @@ class OrchestratorNode(Node):
     # ─────────────────── Core Logic ───────────────────
 
     def _check_battery(self, rid: str, r: 'RobotRecord'):
-        """배터리 수준 체크: 경고 → 자동 귀환."""
+        """배터리 수준 체크: 경고 → 자동 귀환, 회복 시 플래그 리셋."""
         if (r.battery <= self.BATTERY_CRITICAL
                 and r.state != RobotStatus.STATE_RETURNING
                 and not r.battery_critical_acted):
@@ -258,6 +258,11 @@ class OrchestratorNode(Node):
             r.battery_warned = True
             self.get_logger().warn(
                 f'BATTERY LOW: {rid} at {r.battery:.0f}%')
+        # O5: 배터리 회복 시 플래그 리셋 (배터리 교체/충전 시나리오)
+        if r.battery > self.BATTERY_WARNING and r.battery_warned:
+            r.battery_warned = False
+        if r.battery > self.BATTERY_CRITICAL and r.battery_critical_acted:
+            r.battery_critical_acted = False
 
     def check_heartbeats(self):
         """주기적 heartbeat 점검: 타임아웃 시 통신 두절 판정."""
@@ -393,7 +398,7 @@ class OrchestratorNode(Node):
             now_sec = self.get_clock().now().nanoseconds / 1e9
             active_fires = [
                 f for f in self.fire_alerts
-                if f.active and (now_sec - f.header.stamp.sec) < self.fire_expiry
+                if f.active and (now_sec - (f.header.stamp.sec + f.header.stamp.nanosec / 1e9)) < self.fire_expiry
             ]
             if not active_fires:
                 self.stage = MissionState.STAGE_EXPLORING
@@ -432,7 +437,7 @@ class OrchestratorNode(Node):
         now_sec = self.get_clock().now().nanoseconds / 1e9
         active_fires = [
             f for f in self.fire_alerts
-            if f.active and (now_sec - f.header.stamp.sec) < self.fire_expiry
+            if f.active and (now_sec - (f.header.stamp.sec + f.header.stamp.nanosec / 1e9)) < self.fire_expiry
         ]
         msg.fire_count = len(active_fires)
         msg.fire_locations = [f.location.point for f in active_fires]

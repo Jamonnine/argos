@@ -22,18 +22,12 @@ def compute_approach_pose(obj_x, obj_y, obj_distance, approach_dist):
 
 
 def find_best_detection(cache, class_name, min_confidence):
-    """캐시에서 해당 클래스 중 가장 신뢰도 높은 객체 반환."""
+    """캐시에서 해당 클래스 중 가장 신뢰도 높은 객체 반환 (P2: strict 매칭)."""
     candidates = [
         obj for obj in cache
         if obj['class_name'] == class_name
         and obj['confidence'] >= min_confidence
     ]
-    if not candidates:
-        # 클래스 필터 없이 재시도
-        candidates = [
-            obj for obj in cache
-            if obj['confidence'] >= min_confidence
-        ]
     if not candidates:
         return None
     return max(candidates, key=lambda o: o['confidence'])
@@ -82,13 +76,13 @@ class TestDetectionFilter:
         # 'person' 0.3 < 0.5 → 폴백 재시도에서도 0.3 < 0.5 → None
         assert result is None
 
-    def test_fallback_any_class(self):
-        """요청 클래스 없으면 아무 클래스라도 반환."""
+    def test_strict_no_fallback(self):
+        """P2: 요청 클래스와 불일치하면 None (폴백 제거)."""
         cache = [
             {'class_name': 'obstacle', 'confidence': 0.9},
         ]
         result = find_best_detection(cache, 'person', 0.5)
-        assert result['class_name'] == 'obstacle'
+        assert result is None
 
     def test_empty_cache(self):
         result = find_best_detection([], 'person', 0.5)

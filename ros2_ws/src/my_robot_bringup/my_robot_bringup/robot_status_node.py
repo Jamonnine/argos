@@ -48,8 +48,16 @@ class RobotStatusPublisher(Node):
 
         self.robot_id = self.get_parameter('robot_id').value
         if not self.robot_id:
-            self.get_logger().error(
-                'robot_id 파라미터가 비어있음! launch 파일 확인 필요')
+            # R1: namespace에서 자동 추출 (launch에서 robot_id 누락 시 폴백)
+            ns = self.get_namespace().strip('/')
+            if ns:
+                self.robot_id = ns
+                self.get_logger().warn(
+                    f'robot_id 비어있음 → namespace에서 추출: {self.robot_id}')
+            else:
+                self.robot_id = self.get_name()
+                self.get_logger().error(
+                    f'robot_id와 namespace 모두 비어있음 → 노드명 사용: {self.robot_id}')
         self.robot_type = self.get_parameter('robot_type').value
         self.capabilities = self.get_parameter('capabilities').value
         self.drain_rate = self.get_parameter('battery_drain_rate').value
@@ -147,10 +155,16 @@ class RobotStatusPublisher(Node):
         self.exploration_status = msg.data
 
     def odom_callback(self, msg: Odometry):
-        """드론 odom → PoseStamped 변환 캐시."""
+        """드론 odom → PoseStamped 변환 캐시.
+
+        R2: 드론은 SLAM 미사용, odom 프레임 직접 사용.
+        오케스트레이터에서 거리 계산 시 odom≈map 근사 (시뮬레이션 환경).
+        실제 배포 시 TF2 odom→map 변환 필요.
+        """
         pose = PoseStamped()
         pose.header = msg.header
-        pose.header.frame_id = 'odom'
+        # R2: odom 프레임 명시 (map과 다를 수 있음을 인지)
+        pose.header.frame_id = msg.header.frame_id or 'odom'
         pose.pose = msg.pose.pose
         self.odom_pose = pose
 

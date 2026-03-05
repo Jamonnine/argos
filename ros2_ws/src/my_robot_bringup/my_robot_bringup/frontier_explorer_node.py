@@ -261,6 +261,9 @@ class FrontierExplorer(Node):
         m = self.current_map
         w, h = m.info.width, m.info.height
         res = m.info.resolution
+        # F3: 빈 맵 방어 (width=0, height=0, resolution=0)
+        if w == 0 or h == 0 or res <= 0.0:
+            return []
         ox = m.info.origin.position.x
         oy = m.info.origin.position.y
 
@@ -433,10 +436,12 @@ class FrontierExplorer(Node):
             return None
 
     def _is_blacklisted(self, x, y):
-        return any(
-            math.hypot(x - bx, y - by) < self.blacklist_radius
-            for bx, by in self.blacklisted
-        )
+        # F4: O(1) numpy 벡터화 (기존 O(n) 순회 대체)
+        if not self.blacklisted:
+            return False
+        bl = np.array(self.blacklisted)
+        dists = np.hypot(bl[:, 0] - x, bl[:, 1] - y)
+        return bool(np.any(dists < self.blacklist_radius))
 
     def publish_status(self, status: str):
         msg = String()
