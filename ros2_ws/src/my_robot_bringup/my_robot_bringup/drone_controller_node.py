@@ -44,7 +44,6 @@ class DroneController(Node):
         self.declare_parameter('kp_horizontal', 0.8)         # P gain
         self.declare_parameter('kp_vertical', 1.0)           # P gain
         self.declare_parameter('kp_yaw', 0.5)                # P gain
-        self.declare_parameter('use_sim_time', True)
 
         self.cruise_alt = self.get_parameter('cruise_altitude').value
         self.max_h_speed = self.get_parameter('max_horizontal_speed').value

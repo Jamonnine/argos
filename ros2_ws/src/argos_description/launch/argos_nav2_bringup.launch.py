@@ -26,7 +26,7 @@ from launch.actions import (
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PythonExpression
-from launch_ros.actions import Node, SetParameter
+from launch_ros.actions import Node, PushROSNamespace, SetParameter
 from launch_ros.descriptions import ParameterFile
 from nav2_common.launch import ReplaceString, RewrittenYaml
 
@@ -58,15 +58,20 @@ def generate_launch_description():
     remappings = [('/tf', 'tf'), ('/tf_static', 'tf_static')]
 
     # 네임스페이스 치환 (멀티로봇 대응)
-    params_file_ns = ReplaceString(
+    # <robot_namespace>/ → argos1/ (멀티로봇) 또는 빈 문자열 (단일로봇)
+    # TF 프레임 이름이 네임스페이스 접두사를 갖기 때문에 params도 일치시킴
+    frame_prefix = PythonExpression([
+        "'", namespace, "/' if '",
+        use_namespace, "'.lower() == 'true' else ''",
+    ])
+    params_file_replaced = ReplaceString(
         source_file=params_file,
-        replacements={'<robot_namespace>': ('/', namespace)},
-        condition=IfCondition(use_namespace),
+        replacements={'<robot_namespace>/': frame_prefix},
     )
 
     configured_params = ParameterFile(
         RewrittenYaml(
-            source_file=params_file_ns,
+            source_file=params_file_replaced,
             root_key=namespace,
             param_rewrites={},
             convert_types=True,
@@ -99,24 +104,28 @@ def generate_launch_description():
         'autostart', default_value='true',
     )
 
-    # --- SLAM (nav2_bringup의 slam_launch.py 재사용) ---
-    slam_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(nav2_launch_dir, 'slam_launch.py')
-        ),
-        condition=IfCondition(slam),
-        launch_arguments={
-            'namespace': namespace,
-            'use_sim_time': use_sim_time,
-            'autostart': autostart,
-            'use_respawn': 'False',
-            'params_file': params_file,
-        }.items(),
-    )
-
-    # --- Nav2 Navigation Nodes (docking 제외, 비-composition 모드) ---
-    nav2_nodes = GroupAction(
+    # --- SLAM + Nav2 (단일 GroupAction으로 네임스페이스 통합 적용) ---
+    bringup_group = GroupAction(
         actions=[
+            PushROSNamespace(
+                condition=IfCondition(use_namespace),
+                namespace=namespace,
+            ),
+            # SLAM (nav2_bringup의 slam_launch.py 재사용)
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(
+                    os.path.join(nav2_launch_dir, 'slam_launch.py')
+                ),
+                condition=IfCondition(slam),
+                launch_arguments={
+                    'namespace': namespace,
+                    'use_sim_time': use_sim_time,
+                    'autostart': autostart,
+                    'use_respawn': 'False',
+                    'params_file': params_file,
+                }.items(),
+            ),
+            # Nav2 Navigation Nodes (docking 제외)
             SetParameter('use_sim_time', use_sim_time),
             Node(
                 package='nav2_controller',
@@ -210,7 +219,6 @@ def generate_launch_description():
     ld.add_action(declare_use_sim_time_cmd)
     ld.add_action(declare_params_file_cmd)
     ld.add_action(declare_autostart_cmd)
-    ld.add_action(slam_launch)
-    ld.add_action(nav2_nodes)
+    ld.add_action(bringup_group)
 
     return ld

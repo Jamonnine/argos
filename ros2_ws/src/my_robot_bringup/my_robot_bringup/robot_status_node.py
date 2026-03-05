@@ -45,7 +45,6 @@ class RobotStatusPublisher(Node):
         self.declare_parameter('battery_drain_rate', 0.02)  # %/초 (시뮬레이션 감쇠)
         self.declare_parameter('map_frame', 'map')
         self.declare_parameter('base_frame', 'base_footprint')
-        self.declare_parameter('use_sim_time', True)
 
         self.robot_id = self.get_parameter('robot_id').value
         if not self.robot_id:

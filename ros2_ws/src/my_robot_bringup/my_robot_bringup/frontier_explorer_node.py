@@ -75,7 +75,6 @@ class FrontierExplorer(Node):
         self.declare_parameter('thermal_pause', True)
         self.declare_parameter('map_frame', 'map')
         self.declare_parameter('base_frame', 'base_footprint')
-        self.declare_parameter('use_sim_time', True)
 
         self.min_frontier_size = self.get_parameter('min_frontier_size').value
         self.exclusion_radius = self.get_parameter('exclusion_radius').value

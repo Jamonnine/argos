@@ -95,6 +95,8 @@ def exploration_robot_group(robot_config, pkg_dir, urdf_file, nav2_params):
         arguments=[
             'joint_state_broadcaster',
             '-c', f'/{name}/controller_manager',
+            '--controller-manager-timeout', '30',
+            '--switch-timeout', '20',
         ],
         output='screen',
     )
@@ -106,6 +108,8 @@ def exploration_robot_group(robot_config, pkg_dir, urdf_file, nav2_params):
         arguments=[
             'diff_drive_controller',
             '-c', f'/{name}/controller_manager',
+            '--controller-manager-timeout', '30',
+            '--switch-timeout', '20',
         ],
         output='screen',
     )
@@ -170,9 +174,9 @@ def exploration_robot_group(robot_config, pkg_dir, urdf_file, nav2_params):
         output='screen',
     )
 
-    # --- Nav2 + SLAM (per robot, 10초 지연: Gazebo 초기화 대기) ---
+    # --- Nav2 + SLAM (per robot, 25초 지연: 멀티로봇 Gazebo + 컨트롤러 초기화 대기) ---
     nav2_bringup = TimerAction(
-        period=10.0,
+        period=25.0,
         actions=[
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
@@ -206,9 +210,9 @@ def exploration_robot_group(robot_config, pkg_dir, urdf_file, nav2_params):
         output='screen',
     )
 
-    # --- Frontier Explorer (15초 지연: Nav2 초기화 대기) ---
+    # --- Frontier Explorer (40초 지연: Nav2 완전 활성화 대기) ---
     frontier_explorer = TimerAction(
-        period=15.0,
+        period=40.0,
         actions=[
             Node(
                 package='my_robot_bringup',
@@ -408,10 +412,10 @@ def generate_launch_description():
         }.items(),
     )
 
-    # --- 오케스트레이터 (중앙 지휘 — 20초 지연: 로봇 초기화 대기) ---
+    # --- 오케스트레이터 (중앙 지휘 — 45초 지연: Nav2 + 탐색 초기화 대기) ---
     all_robot_names = [r['name'] for r in ROBOTS] + [d['name'] for d in DRONES]
     orchestrator = TimerAction(
-        period=20.0,
+        period=45.0,
         actions=[
             Node(
                 package='my_robot_bringup',

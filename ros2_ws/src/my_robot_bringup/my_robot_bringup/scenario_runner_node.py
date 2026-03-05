@@ -52,7 +52,6 @@ class ScenarioRunner(Node):
         self.declare_parameter('emergency_delay_sec', 45.0)
         self.declare_parameter('drone_name', 'drone1')
         self.declare_parameter('target_ugv', 'argos1')
-        self.declare_parameter('use_sim_time', True)
 
         self.simulate_fire = self.get_parameter('simulate_fire').value
         self.fire_delay = self.get_parameter('fire_delay_sec').value

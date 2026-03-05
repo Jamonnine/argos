@@ -32,7 +32,7 @@ lifecycle_manager_navigation:
 bt_navigator:
   ros__parameters:
     global_frame: map
-    robot_base_frame: base_footprint
+    robot_base_frame: <robot_namespace>/base_footprint
     transform_tolerance: 0.5
     default_nav_to_pose_bt_xml: ""
     default_nav_through_poses_bt_xml: ""
@@ -147,8 +147,8 @@ local_costmap:
     ros__parameters:
       update_frequency: 5.0
       publish_frequency: 2.0
-      global_frame: odom
-      robot_base_frame: base_footprint
+      global_frame: <robot_namespace>/odom
+      robot_base_frame: <robot_namespace>/base_footprint
       rolling_window: true
       width: 5
       height: 5
@@ -182,7 +182,7 @@ global_costmap:
       update_frequency: 1.0
       publish_frequency: 1.0
       global_frame: map
-      robot_base_frame: base_footprint
+      robot_base_frame: <robot_namespace>/base_footprint
       transform_tolerance: 0.5
       # ARGOS 0.6×0.4m + 안전 여유 5cm
       footprint: "[[0.35, 0.25], [0.35, -0.25], [-0.35, -0.25], [-0.35, 0.25]]"
@@ -249,9 +249,9 @@ behavior_server:
       plugin: "nav2_behaviors::DriveOnHeading"
     wait:
       plugin: "nav2_behaviors::Wait"
-    local_frame: odom
+    local_frame: <robot_namespace>/odom
     global_frame: map
-    robot_base_frame: base_footprint
+    robot_base_frame: <robot_namespace>/base_footprint
     transform_timeout: 0.1
     simulate_ahead_time: 2.0
     max_rotational_vel: 1.5
@@ -284,8 +284,8 @@ waypoint_follower:
 
 collision_monitor:
   ros__parameters:
-    base_frame_id: "base_footprint"
-    odom_frame_id: "odom"
+    base_frame_id: "<robot_namespace>/base_footprint"
+    odom_frame_id: "<robot_namespace>/odom"
     cmd_vel_in_topic: "cmd_vel_smoothed"
     cmd_vel_out_topic: "cmd_vel"
     transform_tolerance: 0.5
@@ -330,9 +330,9 @@ slam_toolbox:
     ceres_loss_function: None
 
     # 좌표계 (diff_drive_controller와 통일)
-    odom_frame: odom
+    odom_frame: <robot_namespace>/odom
     map_frame: map
-    base_frame: base_footprint
+    base_frame: <robot_namespace>/base_footprint
     scan_topic: scan
 
     # 지도 해상도
