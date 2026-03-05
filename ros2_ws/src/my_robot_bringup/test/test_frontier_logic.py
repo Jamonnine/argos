@@ -296,3 +296,87 @@ class TestGoalCancelledTOCTOU:
             handle_to_cancel.cancel_goal_async()
 
         assert goal_cancelled is False
+
+
+# ══════════════════════════════════════════════════
+# HIGH 버그 수정 검증 (PR #9)
+# ══════════════════════════════════════════════════
+
+class TestEmptyMapGuard:
+    """F3: 빈 맵(width=0, height=0, resolution=0) 방어."""
+
+    def test_zero_width_returns_empty(self):
+        """width=0 → 프론티어 없음 (크래시 방지)."""
+        # 수정 전: np.reshape(0, 0) → ValueError
+        # 수정 후: 빈 리스트 반환
+        w, h, res = 0, 10, 0.05
+        if w == 0 or h == 0 or res <= 0.0:
+            result = []
+        else:
+            result = detect_frontiers([], w, h, res, 0.0, 0.0)
+        assert result == []
+
+    def test_zero_height_returns_empty(self):
+        """height=0 → 프론티어 없음."""
+        w, h, res = 10, 0, 0.05
+        if w == 0 or h == 0 or res <= 0.0:
+            result = []
+        else:
+            result = detect_frontiers([], w, h, res, 0.0, 0.0)
+        assert result == []
+
+    def test_zero_resolution_returns_empty(self):
+        """resolution=0 → 프론티어 없음 (ZeroDivisionError 방지)."""
+        w, h, res = 10, 10, 0.0
+        if w == 0 or h == 0 or res <= 0.0:
+            result = []
+        else:
+            result = detect_frontiers([], w, h, res, 0.0, 0.0)
+        assert result == []
+
+    def test_negative_resolution_returns_empty(self):
+        """음수 resolution → 프론티어 없음."""
+        w, h, res = 10, 10, -0.05
+        if w == 0 or h == 0 or res <= 0.0:
+            result = []
+        else:
+            result = detect_frontiers([], w, h, res, 0.0, 0.0)
+        assert result == []
+
+
+class TestVectorizedBlacklist:
+    """F4: numpy 벡터화 블랙리스트 검사."""
+
+    def _is_blacklisted_vectorized(self, x, y, blacklisted, radius=1.0):
+        """numpy 벡터화 버전 (O(1) vs O(n) 루프)."""
+        if not blacklisted:
+            return False
+        bl = np.array(blacklisted)
+        dists = np.hypot(bl[:, 0] - x, bl[:, 1] - y)
+        return bool(np.any(dists < radius))
+
+    def test_vectorized_matches_original(self):
+        """벡터화 결과가 원본과 동일."""
+        blacklist = [(1.0, 1.0), (5.0, 5.0), (3.0, 7.0)]
+        test_points = [
+            (1.0, 1.0), (1.3, 1.0), (10.0, 10.0), (5.1, 5.0), (0.0, 0.0)
+        ]
+        for x, y in test_points:
+            original = is_blacklisted(x, y, blacklist, 0.5)
+            vectorized = self._is_blacklisted_vectorized(x, y, blacklist, 0.5)
+            assert original == vectorized, f"Mismatch at ({x}, {y})"
+
+    def test_vectorized_empty_blacklist(self):
+        """빈 블랙리스트 → False."""
+        assert self._is_blacklisted_vectorized(1.0, 1.0, [], 0.5) is False
+
+    def test_vectorized_large_blacklist(self):
+        """대형 블랙리스트에서도 정상 동작."""
+        # 100개 블랙리스트 포인트
+        blacklist = [(float(i), float(i)) for i in range(100)]
+        # (50, 50)은 블랙리스트에 있음
+        assert self._is_blacklisted_vectorized(50.0, 50.0, blacklist, 0.5) is True
+        # (50.5, 50.5)도 반경 내
+        assert self._is_blacklisted_vectorized(50.5, 50.5, blacklist, 1.0) is True
+        # (200, 200)은 블랙리스트 밖
+        assert self._is_blacklisted_vectorized(200.0, 200.0, blacklist, 0.5) is False

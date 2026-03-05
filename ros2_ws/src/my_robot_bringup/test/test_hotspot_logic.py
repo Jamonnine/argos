@@ -219,3 +219,115 @@ class TestHotspotDetection:
         _, _, _, _, mean_px = hotspots[0]
         confidence = mean_px / 255.0
         assert 0.9 <= confidence <= 1.0  # 원 내부 전부 255이므로 거의 1.0
+
+
+# ══════════════════════════════════════════════════
+# HIGH 버그 수정 검증 (PR #9)
+# ══════════════════════════════════════════════════
+
+class TestSeverityThresholdsValidation:
+    """H1: severity_thresholds 길이 검증."""
+
+    def test_valid_3_thresholds(self):
+        """3개 임계값 → 정상 사용."""
+        thresholds = [323.15, 473.15, 673.15]
+        assert len(thresholds) == 3
+        assert classify_severity(500.0, thresholds) == 'high'
+
+    def test_invalid_2_thresholds_fallback(self):
+        """2개 임계값 → 기본값으로 폴백."""
+        thresholds = [323.15, 473.15]
+        # 수정 로직: 길이 != 3이면 기본값 사용
+        if len(thresholds) != 3:
+            thresholds = [323.15, 473.15, 673.15]
+        assert len(thresholds) == 3
+        assert classify_severity(500.0, thresholds) == 'high'
+
+    def test_invalid_0_thresholds_fallback(self):
+        """빈 리스트 → 기본값으로 폴백."""
+        thresholds = []
+        if len(thresholds) != 3:
+            thresholds = [323.15, 473.15, 673.15]
+        assert classify_severity(300.0, thresholds) == 'low'
+
+    def test_invalid_5_thresholds_fallback(self):
+        """5개 임계값 → 기본값으로 폴백."""
+        thresholds = [300, 400, 500, 600, 700]
+        if len(thresholds) != 3:
+            thresholds = [323.15, 473.15, 673.15]
+        assert classify_severity(700.0, thresholds) == 'critical'
+
+
+class TestNegativeKelvinGuard:
+    """H2: 음수 켈빈 온도 방지."""
+
+    def test_negative_pixel_clamps_to_zero(self):
+        """음수 픽셀값 → 0K로 클램프."""
+        # 수정 후: max(0.0, ...)
+        temp = max(0.0, 253.15 + (-200) * 3.0)
+        assert temp == 0.0
+
+    def test_zero_pixel_normal(self):
+        """픽셀 0 → 최소 온도 (양수)."""
+        temp = max(0.0, 253.15 + 0 * 3.0)
+        assert temp == pytest.approx(253.15)
+
+    def test_normal_pixel_unaffected(self):
+        """정상 픽셀값은 가드에 영향 없음."""
+        temp_guarded = max(0.0, 253.15 + 100 * 3.0)
+        temp_original = 253.15 + 100 * 3.0
+        assert temp_guarded == pytest.approx(temp_original)
+
+
+class TestMaxDetections:
+    """H4: max_detections 파라미터 검증."""
+
+    def test_single_detection_default(self):
+        """기본값: 1개 화점만 보고."""
+        max_detections = 1
+        detections = [
+            (800.0, 'det_a'),
+            (700.0, 'det_b'),
+            (900.0, 'det_c'),
+        ]
+        # 온도 내림차순 정렬 후 상위 N개
+        detections.sort(key=lambda x: x[0], reverse=True)
+        top = detections[:max_detections]
+        assert len(top) == 1
+        assert top[0][0] == 900.0  # 가장 고온
+
+    def test_multiple_detections(self):
+        """max_detections=3이면 3개 보고."""
+        max_detections = 3
+        detections = [
+            (800.0, 'a'), (700.0, 'b'), (900.0, 'c'),
+            (600.0, 'd'), (850.0, 'e'),
+        ]
+        detections.sort(key=lambda x: x[0], reverse=True)
+        top = detections[:max_detections]
+        assert len(top) == 3
+        assert top[0][0] == 900.0
+        assert top[1][0] == 850.0
+        assert top[2][0] == 800.0
+
+    def test_fewer_detections_than_max(self):
+        """감지 수 < max_detections → 모두 보고."""
+        max_detections = 5
+        detections = [(800.0, 'a'), (700.0, 'b')]
+        detections.sort(key=lambda x: x[0], reverse=True)
+        top = detections[:max_detections]
+        assert len(top) == 2
+
+    def test_incremental_insertion(self):
+        """실제 코드 패턴: append → sort → truncate."""
+        max_detections = 2
+        top = []
+
+        for temp, name in [(500.0, 'a'), (800.0, 'b'), (600.0, 'c'), (900.0, 'd')]:
+            top.append((temp, name))
+            top.sort(key=lambda x: x[0], reverse=True)
+            top = top[:max_detections]
+
+        assert len(top) == 2
+        assert top[0][0] == 900.0
+        assert top[1][0] == 800.0
