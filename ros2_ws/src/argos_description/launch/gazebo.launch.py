@@ -18,7 +18,7 @@ from launch.actions import (
 )
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import Command, LaunchConfiguration
+from launch.substitutions import Command, LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from ament_index_python.packages import get_package_share_directory
@@ -33,6 +33,11 @@ def generate_launch_description():
     world_arg = DeclareLaunchArgument(
         'world', default_value='empty.sdf',
         description='Gazebo world file'
+    )
+
+    headless_arg = DeclareLaunchArgument(
+        'headless', default_value='false',
+        description='Run Gazebo headless (no GUI, EGL rendering for sensors)'
     )
 
     # URDF → robot_description 파라미터 (namespace 비어있음 = 단일 로봇)
@@ -52,6 +57,13 @@ def generate_launch_description():
     )
 
     # Gazebo Harmonic 실행
+    # headless=true → -s --headless-rendering (서버 모드 + EGL 렌더링)
+    gz_args = PythonExpression([
+        "'-s --headless-rendering -r ' if '",
+        LaunchConfiguration('headless'),
+        "' == 'true' else '-r '",
+    ])
+
     gazebo = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
             os.path.join(
@@ -60,7 +72,7 @@ def generate_launch_description():
             )
         ]),
         launch_arguments={
-            'gz_args': ['-r ', LaunchConfiguration('world')],
+            'gz_args': [gz_args, LaunchConfiguration('world')],
         }.items(),
     )
 
@@ -142,6 +154,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         world_arg,
+        headless_arg,
         robot_state_publisher,
         gazebo,
         spawn_robot,

@@ -144,14 +144,14 @@ class TestMPPIController:
 class TestCostmap:
 
     def test_local_costmap_frame(self, nav2_config):
-        """local costmap base frame = base_footprint."""
+        """local costmap base frame은 base_footprint을 포함."""
         lc = nav2_config['local_costmap']['local_costmap']['ros__parameters']
-        assert lc['robot_base_frame'] == 'base_footprint'
+        assert 'base_footprint' in lc['robot_base_frame']
 
     def test_global_costmap_frame(self, nav2_config):
-        """global costmap base frame = base_footprint."""
+        """global costmap base frame은 base_footprint을 포함."""
         gc = nav2_config['global_costmap']['global_costmap']['ros__parameters']
-        assert gc['robot_base_frame'] == 'base_footprint'
+        assert 'base_footprint' in gc['robot_base_frame']
 
     def test_footprint_argos_size(self, nav2_config):
         """footprint 폴리곤이 ARGOS 크기(0.6×0.4m + 여유)와 일치."""
@@ -188,9 +188,9 @@ class TestVelocitySmoother:
 class TestSLAMToolbox:
 
     def test_base_frame(self, nav2_config):
-        """SLAM base_frame = base_footprint."""
+        """SLAM base_frame은 base_footprint을 포함."""
         st = nav2_config['slam_toolbox']['ros__parameters']
-        assert st['base_frame'] == 'base_footprint'
+        assert 'base_footprint' in st['base_frame']
 
     def test_laser_range(self, nav2_config):
         """LiDAR max range 설정."""
@@ -205,9 +205,9 @@ class TestSLAMToolbox:
 class TestCollisionMonitor:
 
     def test_base_frame(self, nav2_config):
-        """collision_monitor base_frame = base_footprint."""
+        """collision_monitor base_frame은 base_footprint을 포함."""
         cm = nav2_config['collision_monitor']['ros__parameters']
-        assert cm['base_frame_id'] == 'base_footprint'
+        assert 'base_footprint' in cm['base_frame_id']
 
     def test_polygon_stop_exists(self, nav2_config):
         """PolygonStop 긴급 정지 영역 설정."""

@@ -76,7 +76,6 @@ class OrchestratorNode(Node):
 
         # --- Parameters ---
         self.declare_parameter('expected_robots', ['argos1', 'argos2'])
-        self.declare_parameter('use_sim_time', True)
         self.declare_parameter('return_timeout_sec', 30.0)
         self.declare_parameter('fire_alert_expiry_sec', 300.0)  # 5분 후 자동 비활성
 
