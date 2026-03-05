@@ -64,6 +64,7 @@ class ScenarioRunner(Node):
         self.start_time = None          # 시나리오 전체 시작
         self.phase_start_time = None    # 현재 페이즈 시작
         self.mission_stage = MissionState.STAGE_INIT
+        self.service_failures = 0       # S2: 서비스 실패 추적
 
         # --- Subscribers ---
         self.mission_sub = self.create_subscription(
@@ -197,7 +198,11 @@ class ScenarioRunner(Node):
 
     def _call_service(self, client, name):
         if not client.service_is_ready():
-            self.get_logger().warn(f'{name}: service not available')
+            # S2: 서비스 미가용 시 실패 카운트 + 경고
+            self.service_failures += 1
+            self.get_logger().warn(
+                f'{name}: service not available '
+                f'(failures: {self.service_failures})')
             return
         req = Trigger.Request()
         future = client.call_async(req)
@@ -205,9 +210,18 @@ class ScenarioRunner(Node):
         def _on_result(f):
             try:
                 result = f.result()
-                self.get_logger().info(f'{name}: {result.message}')
+                if result.success:
+                    self.get_logger().info(f'{name}: {result.message}')
+                else:
+                    self.service_failures += 1
+                    self.get_logger().warn(
+                        f'{name}: rejected — {result.message} '
+                        f'(failures: {self.service_failures})')
             except Exception as e:
-                self.get_logger().error(f'{name}: service call failed: {e}')
+                self.service_failures += 1
+                self.get_logger().error(
+                    f'{name}: service call failed: {e} '
+                    f'(failures: {self.service_failures})')
 
         future.add_done_callback(_on_result)
 
@@ -233,7 +247,9 @@ class ScenarioRunner(Node):
 
     def _simulate_fire(self):
         """가짜 화재 감지 메시지를 UGV 열화상 토픽에 발행."""
-        if not self.simulate_fire:
+        # S1: thermal_pub가 미존재 시 안전 가드
+        if not self.simulate_fire or not hasattr(self, 'thermal_pub'):
+            self.get_logger().warn('simulate_fire 비활성 또는 thermal_pub 미초기화')
             return
         det = ThermalDetection()
         det.header.stamp = self.get_clock().now().to_msg()

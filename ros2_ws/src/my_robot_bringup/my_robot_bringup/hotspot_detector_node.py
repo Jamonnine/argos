@@ -48,13 +48,21 @@ class HotspotDetectorNode(Node):
         self.declare_parameter('l8_min_temp', 253.15)    # 최소 온도 (K)
         self.declare_parameter('severity_thresholds',    # 심각도 온도 기준 (K)
                                [323.15, 473.15, 673.15])  # 50°C, 200°C, 400°C
+        self.declare_parameter('max_detections', 1)   # H4: 프레임당 최대 발행 화점 수
 
         self.top_percent = self.get_parameter('top_percent').value
         self.min_area = self.get_parameter('min_area').value
         self.l8_resolution = self.get_parameter('l8_resolution').value
         self.l8_min_temp = self.get_parameter('l8_min_temp').value
         severity_list = self.get_parameter('severity_thresholds').value
+        # H1: severity_thresholds 길이 검증 (low/medium/high/critical 경계 3개 필요)
+        if len(severity_list) != 3:
+            self.get_logger().error(
+                f'severity_thresholds must have 3 values, got {len(severity_list)}. '
+                f'Using defaults [323.15, 473.15, 673.15]')
+            severity_list = [323.15, 473.15, 673.15]
         self.severity_thresholds = severity_list
+        self.max_detections = self.get_parameter('max_detections').value
 
         self.bridge = CvBridge()
         self._last_publish_time = None
@@ -83,7 +91,8 @@ class HotspotDetectorNode(Node):
 
     def pixel_to_kelvin(self, pixel_value: float) -> float:
         """L8 픽셀값 → 추정 온도(K) 변환."""
-        return self.l8_min_temp + pixel_value * self.l8_resolution
+        # H2: 음수 켈빈 온도 방지 (물리적으로 불가능한 값)
+        return max(0.0, self.l8_min_temp + pixel_value * self.l8_resolution)
 
     def classify_severity(self, temp_kelvin: float) -> str:
         """온도 기반 심각도 분류."""
@@ -124,7 +133,8 @@ class HotspotDetectorNode(Node):
         # 시각화 이미지 준비 (컬러맵 적용)
         viz_img = cv2.applyColorMap(cv_img, cv2.COLORMAP_INFERNO)
 
-        worst_det = None  # 프레임 내 최고온 화점만 발행 (플러딩 방지)
+        # H4: 프레임 내 상위 N개 화점 추적 (max_detections 파라미터)
+        top_detections = []  # (temp, det) 리스트
 
         for contour in contours:
             area = cv2.contourArea(contour)
@@ -178,9 +188,10 @@ class HotspotDetectorNode(Node):
             det.severity = severity
             det.area_ratio = float(area) / float(total_pixels)
 
-            # 최고온 화점 추적
-            if worst_det is None or max_temp > worst_det.max_temperature_kelvin:
-                worst_det = det
+            # 상위 N개 화점 추적 (온도 내림차순)
+            top_detections.append((max_temp, det))
+            top_detections.sort(key=lambda x: x[0], reverse=True)
+            top_detections = top_detections[:self.max_detections]
 
             # 시각화에 표시 (모든 화점)
             color = {
@@ -195,8 +206,8 @@ class HotspotDetectorNode(Node):
             cv2.putText(viz_img, label, (x, y-5),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
 
-        # 프레임 내 최고온 화점 1개만 발행 (쿨다운 적용)
-        if worst_det is not None:
+        # 상위 N개 화점 발행 (쿨다운 적용)
+        if top_detections:
             now = self.get_clock().now()
             should_publish = (
                 self._last_publish_time is None
@@ -204,7 +215,8 @@ class HotspotDetectorNode(Node):
                 >= self._publish_cooldown
             )
             if should_publish:
-                self.pub_detection.publish(worst_det)
+                for _, det in top_detections:
+                    self.pub_detection.publish(det)
                 self._last_publish_time = now
 
         # 시각화 이미지 발행

@@ -134,6 +134,9 @@ class PerceptionBridgeNode(Node):
 
     def _on_detections(self, msg: DetectionArray):
         """실제 AI 감지 결과 수신 → 캐시에 저장."""
+        # P3: 자기 발행 메시지 무시 (에코 루프 방지)
+        if msg.detector_name == 'lidar_simulator' and self._simulate:
+            return
         for obj in msg.detections:
             self._detection_cache.append(obj)
         self.get_logger().debug(
@@ -184,13 +187,15 @@ class PerceptionBridgeNode(Node):
         obj.pose_3d.orientation.w = 1.0
         obj.distance = closest_dist
 
-        # DetectionArray로 감싸서 발행
+        # P3: 에코 루프 방지 — 자기 발행 → 자기 구독 경로 대신 직접 캐시 저장
+        self._detection_cache.append(obj)
+
+        # 외부 구독자용으로도 발행 (다른 노드에서 필요할 수 있음)
         arr = DetectionArray()
         arr.header = obj.header
         arr.detections = [obj]
         arr.detector_name = 'lidar_simulator'
         self._detection_pub.publish(arr)
-        # 캐시 저장은 _on_detections 콜백에서 처리 (이중 저장 방지)
 
     # ──────────────────────────────────────────────────────────────
     # Service Server: NavigateToObject 처리
@@ -256,18 +261,15 @@ class PerceptionBridgeNode(Node):
     def _find_best_detection(
         self, class_name: str, min_confidence: float
     ):
-        """캐시에서 해당 클래스 중 가장 신뢰도 높은 객체 반환."""
+        """캐시에서 해당 클래스 중 가장 신뢰도 높은 객체 반환.
+
+        P2: strict 매칭 — 요청 클래스와 정확히 일치하는 객체만 반환.
+        """
         candidates = [
             obj for obj in self._detection_cache
             if obj.class_name == class_name
             and obj.confidence >= min_confidence
         ]
-        if not candidates:
-            # 클래스 필터 없이 재시도 (시뮬레이션 편의)
-            candidates = [
-                obj for obj in self._detection_cache
-                if obj.confidence >= min_confidence
-            ]
         if not candidates:
             return None
         # 신뢰도 기준 정렬, 가장 높은 것 반환
