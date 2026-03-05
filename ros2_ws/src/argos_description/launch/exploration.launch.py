@@ -22,7 +22,7 @@ from launch.actions import (
 )
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import Command, LaunchConfiguration
+from launch.substitutions import Command, LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node, PushRosNamespace
 from launch_ros.parameter_descriptions import ParameterValue
 from ament_index_python.packages import get_package_share_directory
@@ -40,7 +40,7 @@ DRONES = [
 ]
 
 
-def exploration_robot_group(robot_config, pkg_dir, urdf_file, nav2_bringup_dir, nav2_params):
+def exploration_robot_group(robot_config, pkg_dir, urdf_file, nav2_params):
     """단일 로봇: 스폰 + 컨트롤러 + Nav2/SLAM + 탐색 전체 스택."""
     name = robot_config['name']
     x = str(robot_config['x'])
@@ -176,14 +176,13 @@ def exploration_robot_group(robot_config, pkg_dir, urdf_file, nav2_bringup_dir, 
         actions=[
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
-                    os.path.join(nav2_bringup_dir, 'launch', 'bringup_launch.py')
+                    os.path.join(pkg_dir, 'launch', 'argos_nav2_bringup.launch.py')
                 ),
                 launch_arguments={
                     'use_sim_time': 'True',
                     'slam': 'True',
                     'params_file': nav2_params,
                     'autostart': 'True',
-                    'use_composition': 'False',
                     'namespace': name,
                     'use_namespace': 'True',
                 }.items(),
@@ -376,7 +375,6 @@ def drone_group(drone_config, pkg_dir):
 
 def generate_launch_description():
     pkg_dir = get_package_share_directory('argos_description')
-    nav2_bringup_dir = get_package_share_directory('nav2_bringup')
     urdf_file = os.path.join(pkg_dir, 'urdf', 'argos_ugv.urdf.xacro')
     nav2_params = os.path.join(pkg_dir, 'config', 'nav2_params.yaml')
 
@@ -386,7 +384,18 @@ def generate_launch_description():
         description='Gazebo world file',
     )
 
+    headless_arg = DeclareLaunchArgument(
+        'headless', default_value='false',
+        description='Run Gazebo headless (no GUI, EGL rendering for sensors)',
+    )
+
     # --- Gazebo Harmonic ---
+    gz_args = PythonExpression([
+        "'-s --headless-rendering -r ' if '",
+        LaunchConfiguration('headless'),
+        "' == 'true' else '-r '",
+    ])
+
     gazebo = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
             os.path.join(
@@ -395,7 +404,7 @@ def generate_launch_description():
             )
         ]),
         launch_arguments={
-            'gz_args': ['-r ', LaunchConfiguration('world')],
+            'gz_args': [gz_args, LaunchConfiguration('world')],
         }.items(),
     )
 
@@ -435,7 +444,7 @@ def generate_launch_description():
     for robot in ROBOTS:
         all_entities.extend(
             exploration_robot_group(
-                robot, pkg_dir, urdf_file, nav2_bringup_dir, nav2_params)
+                robot, pkg_dir, urdf_file, nav2_params)
         )
 
     # 드론 스택

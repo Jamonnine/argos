@@ -53,6 +53,11 @@ def generate_launch_description():
         description='Gazebo world file',
     )
 
+    headless_arg = DeclareLaunchArgument(
+        'headless', default_value='false',
+        description='Run Gazebo headless (no GUI, EGL rendering for sensors)',
+    )
+
     # --- 전체 탐색 스택 (UGV + Drone + Orchestrator) ---
     exploration_stack = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -60,6 +65,7 @@ def generate_launch_description():
         ),
         launch_arguments={
             'world': LaunchConfiguration('world'),
+            'headless': LaunchConfiguration('headless'),
         }.items(),
     )
 
@@ -110,6 +116,7 @@ def generate_launch_description():
         simulate_fire_arg,
         fire_delay_arg,
         world_arg,
+        headless_arg,
         exploration_stack,
         scenario_runner,
         rosbridge,

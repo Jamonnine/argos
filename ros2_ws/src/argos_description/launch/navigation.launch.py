@@ -31,7 +31,7 @@ from launch.actions import (
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import Command, LaunchConfiguration
+from launch.substitutions import Command, LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from ament_index_python.packages import get_package_share_directory
@@ -39,8 +39,6 @@ from ament_index_python.packages import get_package_share_directory
 
 def generate_launch_description():
     pkg_dir = get_package_share_directory('argos_description')
-    nav2_bringup_dir = get_package_share_directory('nav2_bringup')
-
     urdf_file = os.path.join(pkg_dir, 'urdf', 'argos_ugv.urdf.xacro')
     bridge_config = os.path.join(pkg_dir, 'config', 'gz_bridge.yaml')
     nav2_params = os.path.join(pkg_dir, 'config', 'nav2_params.yaml')
@@ -55,6 +53,11 @@ def generate_launch_description():
     explore_arg = DeclareLaunchArgument(
         'explore', default_value='false',
         description='Enable autonomous frontier exploration'
+    )
+
+    headless_arg = DeclareLaunchArgument(
+        'headless', default_value='false',
+        description='Run Gazebo headless (no GUI, EGL rendering for sensors)'
     )
 
     # --- URDF ---
@@ -74,6 +77,12 @@ def generate_launch_description():
     )
 
     # --- 2. Gazebo Harmonic ---
+    gz_args = PythonExpression([
+        "'-s --headless-rendering -r ' if '",
+        LaunchConfiguration('headless'),
+        "' == 'true' else '-r '",
+    ])
+
     gazebo = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
             os.path.join(
@@ -82,7 +91,7 @@ def generate_launch_description():
             )
         ]),
         launch_arguments={
-            'gz_args': ['-r ', LaunchConfiguration('world')],
+            'gz_args': [gz_args, LaunchConfiguration('world')],
         }.items(),
     )
 
@@ -170,14 +179,13 @@ def generate_launch_description():
         actions=[
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
-                    os.path.join(nav2_bringup_dir, 'launch', 'bringup_launch.py')
+                    os.path.join(pkg_dir, 'launch', 'argos_nav2_bringup.launch.py')
                 ),
                 launch_arguments={
                     'use_sim_time': 'True',
                     'slam': 'True',
                     'params_file': nav2_params,
                     'autostart': 'True',
-                    'use_composition': 'False',
                 }.items(),
             ),
         ],
@@ -219,6 +227,7 @@ def generate_launch_description():
     return LaunchDescription([
         world_arg,
         explore_arg,
+        headless_arg,
         robot_state_publisher,
         gazebo,
         spawn_robot,

@@ -12,6 +12,23 @@
 #   - LiDAR 10m 범위 (gpu_lidar 12m 스펙)
 #   - slam_toolbox 파라미터 포함
 
+# Nav2 Lifecycle Manager: docking_server 제외 (ARGOS는 도킹 미사용)
+# Nav2 Jazzy 기본값에 opennav_docking이 포함되어 있으나, dock 플러그인 미설정 시
+# 전체 bringup이 중단되므로 명시적으로 제외.
+lifecycle_manager_navigation:
+  ros__parameters:
+    autostart: true
+    node_names:
+      - controller_server
+      - smoother_server
+      - planner_server
+      - behavior_server
+      - bt_navigator
+      - waypoint_follower
+      - velocity_smoother
+      - collision_monitor
+      - route_server
+
 bt_navigator:
   ros__parameters:
     global_frame: map
