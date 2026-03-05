@@ -178,10 +178,14 @@ class FrontierExplorer(Node):
             self.get_logger().warn(
                 f'THERMAL {msg.severity.upper()}: {temp_c:.0f} C '
                 f'— exploration PAUSED')
-            if self.nav_goal_handle:
-                with self._nav_lock:
+            # F2 fix: lock 내에서 handle 캡처 + flag 설정, lock 밖에서 cancel
+            handle_to_cancel = None
+            with self._nav_lock:
+                if self.nav_goal_handle is not None:
                     self._goal_cancelled = True
-                self.nav_goal_handle.cancel_goal_async()
+                    handle_to_cancel = self.nav_goal_handle
+            if handle_to_cancel is not None:
+                handle_to_cancel.cancel_goal_async()
             self.publish_status('paused_thermal')
 
     def peer_target_callback(self, msg: PoseStamped):
@@ -356,7 +360,14 @@ class FrontierExplorer(Node):
         future.add_done_callback(self._nav_goal_response)
 
     def _nav_goal_response(self, future):
-        goal_handle = future.result()
+        try:
+            goal_handle = future.result()
+        except Exception as e:
+            self.get_logger().warn(f'Nav2 goal send failed: {e}')
+            with self._nav_lock:
+                self.navigating = False
+            return
+
         if not goal_handle.accepted:
             self.get_logger().warn('Nav2 goal rejected — blacklisting')
             with self._nav_lock:
@@ -372,7 +383,15 @@ class FrontierExplorer(Node):
         pass
 
     def _nav_result(self, future):
-        result = future.result()
+        try:
+            result = future.result()
+        except Exception as e:
+            self.get_logger().warn(f'Nav2 result retrieval failed: {e}')
+            with self._nav_lock:
+                self.navigating = False
+                self.nav_goal_handle = None
+            return
+
         with self._nav_lock:
             if self.current_goal is None:
                 self.navigating = False
@@ -485,9 +504,11 @@ def main(args=None):
         pass
     finally:
         # 진행 중인 Nav2 goal 취소 (graceful shutdown)
-        if node.nav_goal_handle is not None:
+        with node._nav_lock:
+            handle = node.nav_goal_handle
+        if handle is not None:
             node.get_logger().info('Cancelling active Nav2 goal...')
-            node.nav_goal_handle.cancel_goal_async()
+            handle.cancel_goal_async()
         node.destroy_node()
         rclpy.shutdown()
 

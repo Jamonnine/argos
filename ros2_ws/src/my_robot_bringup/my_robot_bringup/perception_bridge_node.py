@@ -29,6 +29,8 @@ from geometry_msgs.msg import PoseStamped, Pose, Point, Quaternion
 from std_msgs.msg import Header
 from sensor_msgs.msg import LaserScan
 from nav2_msgs.action import NavigateToPose
+from tf2_ros import Buffer, TransformListener
+from tf2_geometry_msgs import do_transform_pose_stamped
 
 # 우리가 직접 만든 커스텀 인터페이스
 from my_robot_interfaces.msg import DetectedObject, DetectionArray
@@ -60,6 +62,10 @@ class PerceptionBridgeNode(Node):
         cache_size = self.get_parameter('detection_cache_size').value
         self._approach_dist = self.get_parameter('default_approach_distance').value
         self._simulate = self.get_parameter('simulate_detections').value
+
+        # ── TF2 (base_link → map 변환) ─────────────────────────────
+        self._tf_buffer = Buffer()
+        self._tf_listener = TransformListener(self._tf_buffer, self)
 
         # ── 감지 결과 캐시 ─────────────────────────────────────────
         # deque: FIFO, maxlen 초과 시 오래된 항목 자동 제거
@@ -297,19 +303,36 @@ class PerceptionBridgeNode(Node):
         return pose
 
     def _send_nav2_goal(self, pose: Pose):
-        """Nav2 NavigateToPose Action에 목표 전송 (비블로킹)."""
+        """Nav2 NavigateToPose Action에 목표 전송 (비블로킹).
+
+        P1 fix: base_link 좌표를 TF2로 map 프레임으로 변환 후 전송.
+        Nav2는 map 프레임 목표를 기대하므로 base_link 그대로 보내면 엉뚱한 위치로 이동.
+        """
         if not self._nav2_server_ready:
             self.get_logger().warn('Nav2 서버 미준비 — 목표 드롭')
             return
 
+        # base_link 기준 PoseStamped 생성
+        pose_bl = PoseStamped()
+        pose_bl.header.stamp = self.get_clock().now().to_msg()
+        pose_bl.header.frame_id = 'base_link'
+        pose_bl.pose = pose
+
+        # TF2로 base_link → map 변환
+        try:
+            transform = self._tf_buffer.lookup_transform(
+                'map', 'base_link', rclpy.time.Time())
+            pose_map = do_transform_pose_stamped(pose_bl, transform)
+        except Exception as e:
+            self.get_logger().warn(f'TF2 변환 실패 (base_link→map): {e} — 목표 드롭')
+            return
+
         goal = NavigateToPose.Goal()
-        goal.pose = PoseStamped()
-        goal.pose.header.stamp = self.get_clock().now().to_msg()
-        goal.pose.header.frame_id = 'base_link'  # 좌표가 base_link 기준이므로 일치시킴
-        goal.pose.pose = pose
+        goal.pose = pose_map
 
         self.get_logger().info(
-            f'Nav2 목표 전송: x={pose.position.x:.2f}, y={pose.position.y:.2f}'
+            f'Nav2 목표 전송 (map): x={pose_map.pose.position.x:.2f}, '
+            f'y={pose_map.pose.position.y:.2f}'
         )
         self._nav2_client.send_goal_async(goal)
 
