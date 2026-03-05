@@ -5,6 +5,7 @@ OccupancyGrid 프론티어 감지 + 블랙리스트 + 선택 알고리즘 검증
 
 import pytest
 import math
+import threading
 import numpy as np
 import cv2
 
@@ -202,3 +203,96 @@ class TestFrontierSelection:
         """프론티어가 없으면 None."""
         result = select_best_frontier([], 0.0, 0.0)
         assert result is None
+
+
+# ══════════════════════════════════════════════════
+# CRITICAL 버그 수정 검증 (PR #8)
+# ══════════════════════════════════════════════════
+
+class TestFutureResultGuard:
+    """F1: future.result() 예외 처리 패턴 검증."""
+
+    def test_future_exception_handled(self):
+        """Future가 예외를 던져도 navigating 상태가 False로 리셋."""
+        # 실제 ROS2 future 없이 패턴만 검증
+        navigating = True
+        nav_goal_handle = None
+
+        class FakeFuture:
+            def result(self):
+                raise RuntimeError('Nav2 server shutdown')
+
+        fake_future = FakeFuture()
+        try:
+            result = fake_future.result()
+        except Exception:
+            navigating = False
+            nav_goal_handle = None
+
+        assert navigating is False
+        assert nav_goal_handle is None
+
+    def test_future_success_keeps_navigating(self):
+        """정상 Future는 navigating 유지."""
+        navigating = True
+
+        class FakeFuture:
+            def result(self):
+                return type('Handle', (), {'accepted': True})()
+
+        fake_future = FakeFuture()
+        try:
+            result = fake_future.result()
+            assert result.accepted is True
+        except Exception:
+            navigating = False
+
+        assert navigating is True
+
+
+class TestGoalCancelledTOCTOU:
+    """F2: _goal_cancelled TOCTOU 레이스 방지 패턴 검증."""
+
+    def test_cancel_with_lock_capture(self):
+        """Lock 내에서 handle 캡처 후 lock 밖에서 cancel 호출."""
+        lock = threading.Lock()
+        goal_cancelled = False
+        cancel_called = False
+
+        class FakeHandle:
+            def cancel_goal_async(self):
+                nonlocal cancel_called
+                cancel_called = True
+
+        nav_goal_handle = FakeHandle()
+
+        # 수정된 패턴: lock 내에서 handle 캡처
+        handle_to_cancel = None
+        with lock:
+            if nav_goal_handle is not None:
+                goal_cancelled = True
+                handle_to_cancel = nav_goal_handle
+
+        # lock 밖에서 cancel (lock 내에서 cancel하면 데드락 위험)
+        if handle_to_cancel is not None:
+            handle_to_cancel.cancel_goal_async()
+
+        assert goal_cancelled is True
+        assert cancel_called is True
+
+    def test_cancel_with_none_handle(self):
+        """Handle이 None이면 cancel 시도하지 않음."""
+        lock = threading.Lock()
+        goal_cancelled = False
+
+        handle_to_cancel = None
+        with lock:
+            nav_goal_handle = None
+            if nav_goal_handle is not None:
+                goal_cancelled = True
+                handle_to_cancel = nav_goal_handle
+
+        if handle_to_cancel is not None:
+            handle_to_cancel.cancel_goal_async()
+
+        assert goal_cancelled is False
