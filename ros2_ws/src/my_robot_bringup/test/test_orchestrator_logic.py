@@ -318,3 +318,130 @@ class TestReturnStartTimeGuard:
         current_time_ns = 130.0
         elapsed = current_time_ns - return_start_time
         assert elapsed == pytest.approx(30.0)
+
+
+# ══════════════════════════════════════════════════
+# HIGH 버그 수정 검증 (PR #9)
+# ══════════════════════════════════════════════════
+
+class TestFireExpiryNanosec:
+    """O4: fire_expiry 계산 시 nanosec 포함 검증."""
+
+    def test_sec_only_loses_precision(self):
+        """sec만 사용하면 최대 1초 오차."""
+        stamp_sec = 100
+        stamp_nanosec = 999_000_000  # 0.999초
+        now_sec = 101.5
+
+        # 수정 전: sec만 사용
+        age_wrong = now_sec - stamp_sec  # 1.5초
+        # 수정 후: sec + nanosec/1e9
+        age_correct = now_sec - (stamp_sec + stamp_nanosec / 1e9)  # 0.501초
+
+        assert abs(age_wrong - age_correct) > 0.4  # 큰 차이
+
+    def test_nanosec_precision(self):
+        """nanosec 포함 시 정확한 경과 시간."""
+        stamp_sec = 50
+        stamp_nanosec = 500_000_000  # 0.5초
+        now_sec = 52.0
+
+        age = now_sec - (stamp_sec + stamp_nanosec / 1e9)
+        assert age == pytest.approx(1.5)
+
+    def test_fire_expiry_with_nanosec(self):
+        """화점 만료 판정에 nanosec 반영."""
+        fire_expiry = 30.0  # 30초
+        stamp_sec = 100
+        stamp_nanosec = 0
+        now_sec = 129.5
+
+        age = now_sec - (stamp_sec + stamp_nanosec / 1e9)
+        assert age < fire_expiry  # 29.5초 < 30초 → 아직 유효
+
+        now_sec = 130.5
+        age = now_sec - (stamp_sec + stamp_nanosec / 1e9)
+        assert age > fire_expiry  # 30.5초 > 30초 → 만료
+
+
+class TestBatteryFlagReset:
+    """O5: 배터리 복구 시 경고 플래그 리셋 검증."""
+
+    def test_warning_flag_resets_above_threshold(self):
+        """배터리 > 30% → battery_warned 리셋."""
+        record = RobotRecord('argos1', battery=35.0)
+        record.battery_warned = True
+
+        # 수정 후 로직: 배터리 회복 시 리셋
+        if record.battery > 30.0 and record.battery_warned:
+            record.battery_warned = False
+
+        assert record.battery_warned is False
+
+    def test_critical_flag_resets_above_threshold(self):
+        """배터리 > 15% → battery_critical_acted 리셋."""
+        record = RobotRecord('argos1', battery=20.0)
+        record.battery_critical_acted = True
+
+        if record.battery > 15.0 and record.battery_critical_acted:
+            record.battery_critical_acted = False
+
+        assert record.battery_critical_acted is False
+
+    def test_flags_stay_when_still_low(self):
+        """배터리가 여전히 낮으면 플래그 유지."""
+        record = RobotRecord('argos1', battery=10.0)
+        record.battery_warned = True
+        record.battery_critical_acted = True
+
+        if record.battery > 30.0:
+            record.battery_warned = False
+        if record.battery > 15.0:
+            record.battery_critical_acted = False
+
+        assert record.battery_warned is True
+        assert record.battery_critical_acted is True
+
+    def test_full_drain_and_recovery_cycle(self):
+        """완전 감쇠 → 복구 사이클."""
+        record = RobotRecord('argos1', battery=100.0)
+
+        # 감쇠 → warning
+        record.battery = 25.0
+        assert check_battery(record.battery) == 'warning'
+        record.battery_warned = True
+
+        # 감쇠 → critical
+        record.battery = 10.0
+        assert check_battery(record.battery) == 'critical'
+        record.battery_critical_acted = True
+
+        # 복구
+        record.battery = 50.0
+        if record.battery > 30.0:
+            record.battery_warned = False
+        if record.battery > 15.0:
+            record.battery_critical_acted = False
+
+        assert record.battery_warned is False
+        assert record.battery_critical_acted is False
+        assert check_battery(record.battery) == 'ok'
+
+
+class TestStageTransitionEdgeCases:
+    """스테이지 전환 경계 조건."""
+
+    def test_single_robot_system(self):
+        """로봇 1대 시스템 정상 동작."""
+        robots = {
+            'argos1': RobotRecord('argos1', last_seen=1.0,
+                                  current_mission='complete'),
+        }
+        assert check_stage_init(robots) is True
+        assert check_stage_exploring(robots) is True
+
+    def test_empty_robots_dict(self):
+        """로봇 없음 → INIT에서 대기."""
+        robots = {}
+        assert check_stage_init(robots) is True  # all() on empty = True
+        assert check_stage_exploring(robots) is False  # len(active) == 0

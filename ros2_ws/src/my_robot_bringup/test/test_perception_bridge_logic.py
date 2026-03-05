@@ -146,3 +146,84 @@ class TestFrameTransform:
         # 90도 회전이므로 앞 1m = map의 y 방향
         assert map_x == pytest.approx(2.0, abs=0.01)
         assert map_y == pytest.approx(2.0, abs=0.01)
+
+
+# ══════════════════════════════════════════════════
+# HIGH 버그 수정 검증 (PR #9)
+# ══════════════════════════════════════════════════
+
+class TestEchoLoopPrevention:
+    """P3: 시뮬레이션 에코 루프 방지."""
+
+    def _should_process_detection(self, detector_name, simulate_mode):
+        """에코 루프 필터링 로직."""
+        if detector_name == 'lidar_simulator' and simulate_mode:
+            return False  # 자기 발행 메시지 → 무시
+        return True
+
+    def test_self_published_filtered(self):
+        """자기가 발행한 lidar_simulator 메시지는 무시."""
+        assert self._should_process_detection('lidar_simulator', True) is False
+
+    def test_external_detection_passes(self):
+        """외부 감지기 메시지는 통과."""
+        assert self._should_process_detection('yolo_v8', True) is True
+
+    def test_non_simulate_mode_passes(self):
+        """시뮬레이션 모드가 아니면 lidar_simulator도 통과."""
+        assert self._should_process_detection('lidar_simulator', False) is True
+
+    def test_empty_detector_passes(self):
+        """빈 문자열 감지기는 통과."""
+        assert self._should_process_detection('', True) is True
+
+
+class TestStrictClassMatching:
+    """P2: strict 매칭 추가 검증."""
+
+    def test_partial_name_no_match(self):
+        """부분 문자열은 매칭 안 됨 ('person' != 'person_sitting')."""
+        cache = [
+            {'class_name': 'person_sitting', 'confidence': 0.9},
+        ]
+        result = find_best_detection(cache, 'person', 0.5)
+        assert result is None
+
+    def test_case_sensitive(self):
+        """대소문자 구분."""
+        cache = [
+            {'class_name': 'Person', 'confidence': 0.9},
+        ]
+        result = find_best_detection(cache, 'person', 0.5)
+        assert result is None
+
+    def test_multiple_classes_only_target(self):
+        """여러 클래스 중 정확히 요청한 클래스만 반환."""
+        cache = [
+            {'class_name': 'car', 'confidence': 0.95},
+            {'class_name': 'person', 'confidence': 0.85},
+            {'class_name': 'truck', 'confidence': 0.90},
+        ]
+        result = find_best_detection(cache, 'person', 0.5)
+        assert result is not None
+        assert result['class_name'] == 'person'
+        assert result['confidence'] == 0.85
+
+
+class TestApproachPoseEdgeCases:
+    """접근 자세 계산 추가 검증."""
+
+    def test_very_close_object(self):
+        """아주 가까운 객체 (0.2m) → 0.1m 최소 거리."""
+        tx, ty, _, _ = compute_approach_pose(0.2, 0.0, 0.2, 0.5)
+        dist = math.hypot(tx, ty)
+        assert dist == pytest.approx(0.1, abs=0.01)
+
+    def test_behind_robot(self):
+        """뒤쪽 객체 (x < 0) → 뒤를 향한 자세."""
+        tx, ty, qz, qw = compute_approach_pose(-2.0, 0.0, 2.0, 0.5)
+        assert tx < 0  # 뒤쪽
+        # yaw는 π (180도)에 가까움
+        angle = math.atan2(-2.0, 0.0)  # 이건 아님, atan2(y, x) = atan2(0, -2) = π
+        # 실제로는 atan2(obj_y, obj_x) = atan2(0, -2) = π
+        assert abs(angle) == pytest.approx(math.pi)

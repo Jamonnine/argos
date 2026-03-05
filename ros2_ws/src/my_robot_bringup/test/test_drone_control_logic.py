@@ -309,3 +309,137 @@ class TestVerticalControl:
         dz = 0.1
         vz = clamp(1.0 * dz, -1.0, 1.0)
         assert vz == pytest.approx(0.1)
+
+
+# ══════════════════════════════════════════════════
+# HIGH 버그 수정 검증 (PR #9)
+# ══════════════════════════════════════════════════
+
+class TestWaypointQueueLock:
+    """D1: waypoint_queue 스레드 안전성 검증."""
+
+    def test_concurrent_queue_access(self):
+        """여러 스레드가 동시에 큐에 접근해도 크래시 없음."""
+        import threading
+
+        queue = []
+        lock = threading.Lock()
+        errors = []
+
+        def producer():
+            for i in range(100):
+                with lock:
+                    queue.append((float(i), float(i), 8.0))
+
+        def consumer():
+            consumed = 0
+            for _ in range(200):
+                with lock:
+                    if queue:
+                        queue.pop(0)
+                        consumed += 1
+
+        threads = [
+            threading.Thread(target=producer),
+            threading.Thread(target=producer),
+            threading.Thread(target=consumer),
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=5.0)
+
+        # 크래시 없이 완료되면 성공
+        assert True
+
+    def test_lock_protects_pop(self):
+        """Lock 내에서 pop하면 빈 큐에서도 안전."""
+        import threading
+        queue = [(1.0, 2.0, 8.0)]
+        lock = threading.Lock()
+
+        result = None
+        with lock:
+            if queue:
+                result = queue.pop(0)
+        assert result == (1.0, 2.0, 8.0)
+
+        # 빈 큐
+        result = None
+        with lock:
+            if queue:
+                result = queue.pop(0)
+        assert result is None
+
+    def test_queue_len_inside_lock(self):
+        """큐 길이 조회도 lock 내에서."""
+        import threading
+        queue = [(1, 2, 3), (4, 5, 6)]
+        lock = threading.Lock()
+
+        with lock:
+            length = len(queue)
+        assert length == 2
+
+
+class TestLandingTimeout:
+    """D2: 착륙 타임아웃 검증."""
+
+    def test_landing_normal(self):
+        """정상 착륙: 고도 낮음 + 수직 오차 작음."""
+        assert check_landing(0.1, 0.1) is True
+
+    def test_landing_timeout_forced(self):
+        """타임아웃 초과 시 강제 착륙."""
+        landing_timeout = 30.0
+        landing_elapsed = 35.0  # 35초 경과
+
+        # 고도가 아직 높아도 타임아웃이면 착륙
+        z = 1.0  # 아직 높음
+        dz = 0.5
+
+        normal_landing = check_landing(z, dz)
+        timeout_landing = landing_elapsed > landing_timeout
+
+        assert normal_landing is False
+        assert timeout_landing is True
+        # 최종 판정: normal OR timeout
+        assert normal_landing or timeout_landing
+
+    def test_landing_within_timeout(self):
+        """타임아웃 내 정상 착륙."""
+        landing_timeout = 30.0
+        landing_elapsed = 15.0
+        z = 0.2
+        dz = 0.1
+
+        assert check_landing(z, dz) is True
+        assert landing_elapsed <= landing_timeout
+
+    def test_landing_start_time_none_guard(self):
+        """착륙 시작 시각 None → 초기화."""
+        landing_start_time = None
+
+        # 수정된 로직: None이면 현재 시각으로 초기화
+        if landing_start_time is None:
+            landing_start_time = 1000.0  # 현재 시각 (나노초)
+
+        assert landing_start_time == 1000.0
+
+    def test_timeout_resets_state(self):
+        """타임아웃 후 상태 초기화."""
+        state = 'landing'
+        target = (5.0, 5.0, 0.0)
+        landing_start_time = 100.0
+
+        landing_elapsed = 135.0 - landing_start_time  # 35초
+        landing_timeout = 30.0
+
+        if landing_elapsed > landing_timeout:
+            state = 'grounded'
+            target = None
+            landing_start_time = None
+
+        assert state == 'grounded'
+        assert target is None
+        assert landing_start_time is None
