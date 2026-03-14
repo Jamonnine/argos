@@ -127,17 +127,23 @@ class DroneController(Node):
 
     def takeoff_callback(self, request, response):
         """이륙 서비스."""
-        if self.state == 'grounded' and self.current_pose:
-            self.state = 'taking_off'
-            x, y, _, _ = self.current_pose
-            self.target_waypoint = (x, y, self.cruise_alt)
-            self.get_logger().info(
-                f'Taking off to {self.cruise_alt}m')
-            response.success = True
-            response.message = f'Taking off to {self.cruise_alt}m'
-        else:
+        if self.state != 'grounded':
             response.success = False
             response.message = f'Cannot takeoff (state={self.state})'
+            return response
+
+        if self.current_pose:
+            x, y, _, _ = self.current_pose
+        else:
+            # odom 미수신 시 스폰 좌표(0,0)에서 이륙
+            self.get_logger().warn('No odom yet, taking off from origin')
+            x, y = 0.0, 0.0
+
+        self.state = 'taking_off'
+        self.target_waypoint = (x, y, self.cruise_alt)
+        self.get_logger().info(f'Taking off to {self.cruise_alt}m')
+        response.success = True
+        response.message = f'Taking off to {self.cruise_alt}m'
         return response
 
     def land_callback(self, request, response):
