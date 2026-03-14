@@ -128,32 +128,7 @@ def exploration_robot_group(robot_config, pkg_dir, urdf_file, nav2_params):
         )
     )
 
-    # --- Topic Relays ---
-    cmd_vel_relay = Node(
-        package='topic_tools',
-        executable='relay',
-        name='cmd_vel_relay',
-        namespace=name,
-        arguments=[
-            f'/{name}/cmd_vel',
-            f'/{name}/diff_drive_controller/cmd_vel',
-        ],
-        parameters=[{'use_sim_time': True}],
-        output='screen',
-    )
-
-    odom_relay = Node(
-        package='topic_tools',
-        executable='relay',
-        name='odom_relay',
-        namespace=name,
-        arguments=[
-            f'/{name}/diff_drive_controller/odom',
-            f'/{name}/odom',
-        ],
-        parameters=[{'use_sim_time': True}],
-        output='screen',
-    )
+    # cmd_vel/odom 릴레이 제거: ros2_control.urdf.xacro의 remapping으로 직접 연결
 
     # --- Gazebo Bridge (per robot, /clock은 generate_launch_description에서 공통 처리) ---
     gz_bridge = Node(
@@ -253,8 +228,6 @@ def exploration_robot_group(robot_config, pkg_dir, urdf_file, nav2_params):
         spawn_robot,
         jsb_after_spawn,
         ddc_after_jsb,
-        cmd_vel_relay,
-        odom_relay,
         gz_bridge,
         nav2_bringup,
         hotspot_detector,

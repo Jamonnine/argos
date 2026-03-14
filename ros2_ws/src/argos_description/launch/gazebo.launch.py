@@ -130,27 +130,8 @@ def generate_launch_description():
         )
     )
 
-    # --- 토픽 릴레이 (diff_drive_controller 네임스페이스 ↔ 표준 토픽) ---
-    # diff_drive_controller는 /diff_drive_controller/cmd_vel을 구독하지만,
-    # 수동 조작이나 Nav2는 /cmd_vel로 퍼블리시하므로 릴레이 필요.
-    cmd_vel_relay = Node(
-        package='topic_tools',
-        executable='relay',
-        name='cmd_vel_relay',
-        arguments=['/cmd_vel', '/diff_drive_controller/cmd_vel'],
-        parameters=[{'use_sim_time': True}],
-        output='screen',
-    )
-
-    # diff_drive_controller의 /diff_drive_controller/odom → 표준 /odom
-    odom_relay = Node(
-        package='topic_tools',
-        executable='relay',
-        name='odom_relay',
-        arguments=['/diff_drive_controller/odom', '/odom'],
-        parameters=[{'use_sim_time': True}],
-        output='screen',
-    )
+    # cmd_vel/odom 릴레이 제거: ros2_control.urdf.xacro의 remapping으로 직접 연결
+    # diff_drive_controller/cmd_vel → cmd_vel, diff_drive_controller/odom → odom
 
     return LaunchDescription([
         world_arg,
@@ -161,6 +142,4 @@ def generate_launch_description():
         gz_bridge,
         jsb_after_spawn,
         ddc_after_jsb,
-        cmd_vel_relay,
-        odom_relay,
     ])
