@@ -193,7 +193,7 @@ def generate_launch_description():
 
     # --- 8. 열화상 화점 감지 ---
     hotspot_detector = Node(
-        package='my_robot_bringup',
+        package='argos_bringup',
         executable='hotspot_detector',
         name='hotspot_detector',
         parameters=[{
@@ -208,7 +208,7 @@ def generate_launch_description():
 
     # --- 9. 프론티어 자율 탐색 (explore:=true 시 활성화) ---
     frontier_explorer = Node(
-        package='my_robot_bringup',
+        package='argos_bringup',
         executable='frontier_explorer',
         name='frontier_explorer',
         parameters=[{

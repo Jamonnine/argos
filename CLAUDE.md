@@ -26,8 +26,8 @@ argos/
 ├── CLAUDE.md              ← 이 파일
 ├── ros2_ws/src/
 │   ├── argos_description/ ← URDF/xacro (3계층 모듈식)
-│   ├── my_robot_bringup/  ← 노드, launch, 스크립트
-│   └── my_robot_interfaces/ ← .msg/.srv/.action
+│   ├── argos_bringup/     ← 노드, launch, 스크립트
+│   └── argos_interfaces/  ← .msg/.srv/.action
 ├── knowledge/projects/research/ ← 리서치 결과
 ├── learning-log/          ← Day 1-19 학습 기록 (아카이브)
 ├── scripts/               ← 유틸리티 (진단, Gazebo, SLAM, Nav2)

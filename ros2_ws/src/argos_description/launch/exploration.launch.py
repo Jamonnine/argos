@@ -196,7 +196,7 @@ def exploration_robot_group(robot_config, pkg_dir, urdf_file, nav2_params):
 
     # --- Hotspot Detector ---
     hotspot_detector = Node(
-        package='my_robot_bringup',
+        package='argos_bringup',
         executable='hotspot_detector',
         name='hotspot_detector',
         namespace=name,
@@ -215,7 +215,7 @@ def exploration_robot_group(robot_config, pkg_dir, urdf_file, nav2_params):
         period=40.0,
         actions=[
             Node(
-                package='my_robot_bringup',
+                package='argos_bringup',
                 executable='frontier_explorer',
                 name='frontier_explorer',
                 namespace=name,
@@ -235,7 +235,7 @@ def exploration_robot_group(robot_config, pkg_dir, urdf_file, nav2_params):
 
     # --- Robot Status Publisher (오케스트레이터에 상태 보고) ---
     robot_status_pub = Node(
-        package='my_robot_bringup',
+        package='argos_bringup',
         executable='robot_status',
         name='robot_status_publisher',
         namespace=name,
@@ -337,7 +337,7 @@ def drone_group(drone_config, pkg_dir):
         period=10.0,
         actions=[
             Node(
-                package='my_robot_bringup',
+                package='argos_bringup',
                 executable='drone_controller',
                 name='drone_controller',
                 namespace=name,
@@ -354,7 +354,7 @@ def drone_group(drone_config, pkg_dir):
 
     # --- Robot Status Publisher (오케스트레이터에 드론 상태 보고) ---
     robot_status_pub = Node(
-        package='my_robot_bringup',
+        package='argos_bringup',
         executable='robot_status',
         name='robot_status_publisher',
         namespace=name,
@@ -418,7 +418,7 @@ def generate_launch_description():
         period=45.0,
         actions=[
             Node(
-                package='my_robot_bringup',
+                package='argos_bringup',
                 executable='orchestrator',
                 name='orchestrator',
                 parameters=[{

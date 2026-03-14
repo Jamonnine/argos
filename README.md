@@ -105,7 +105,7 @@
 |-----------|-----------|
 | ROS | **ROS 2 Jazzy** (Ubuntu 24.04 / WSL2) |
 | Simulator | **Gazebo Harmonic** + ros_gz bridge |
-| Navigation | **Nav2** (DWB local planner + NavFn global) |
+| Navigation | **Nav2** (MPPI Controller + SmacPlanner2D) |
 | SLAM | **slam_toolbox** (online async) |
 | Drive | **ros2_control** + diff_drive_controller (4WD skid-steer) |
 | Drone | Gazebo MulticopterVelocityControl + P controller |
@@ -190,8 +190,8 @@ argos/
 │   │   ├── worlds/                 # Gazebo indoor_test 월드
 │   │   └── web/                    # 웹 대시보드 (index.html)
 │   │
-│   ├── my_robot_bringup/           # 핵심 노드
-│   │   └── my_robot_bringup/
+│   ├── argos_bringup/              # 핵심 노드
+│   │   └── argos_bringup/
 │   │       ├── frontier_explorer_node.py   # 프론티어 자율 탐색
 │   │       ├── hotspot_detector_node.py    # 열화상 화점 감지
 │   │       ├── orchestrator_node.py        # 중앙 지휘 시스템
@@ -200,7 +200,7 @@ argos/
 │   │       ├── scenario_runner_node.py     # 시나리오 자동 실행
 │   │       └── perception_bridge_node.py   # AI → Nav2 브릿지
 │   │
-│   └── my_robot_interfaces/        # 커스텀 메시지/서비스/액션
+│   └── argos_interfaces/           # 커스텀 메시지/서비스/액션
 │       ├── msg/                    # RobotStatus, MissionState, FireAlert, ThermalDetection
 │       ├── srv/                    # SetStage, NavigateToObject
 │       └── action/                 # PatrolArea

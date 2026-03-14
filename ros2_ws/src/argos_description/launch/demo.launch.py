@@ -74,7 +74,7 @@ def generate_launch_description():
         period=25.0,
         actions=[
             Node(
-                package='my_robot_bringup',
+                package='argos_bringup',
                 executable='scenario_runner',
                 name='scenario_runner',
                 parameters=[{

@@ -328,7 +328,7 @@ function subscribe() {
   // Mission State (2 Hz from orchestrator)
   const missionTopic = new ROSLIB.Topic({
     ros, name: '/orchestrator/mission_state',
-    messageType: 'my_robot_interfaces/MissionState'
+    messageType: 'argos_interfaces/MissionState'
   });
   missionTopic.subscribe(msg => {
     missionState = msg;
@@ -339,7 +339,7 @@ function subscribe() {
   // Robot Status (per-robot, 2 Hz each)
   const statusTopic = new ROSLIB.Topic({
     ros, name: '/orchestrator/robot_status',
-    messageType: 'my_robot_interfaces/RobotStatus'
+    messageType: 'argos_interfaces/RobotStatus'
   });
   statusTopic.subscribe(msg => {
     robots[msg.robot_id] = msg;
@@ -358,7 +358,7 @@ function subscribe() {
   // Fire Alerts
   const fireTopic = new ROSLIB.Topic({
     ros, name: '/orchestrator/fire_alert',
-    messageType: 'my_robot_interfaces/FireAlert'
+    messageType: 'argos_interfaces/FireAlert'
   });
   fireTopic.subscribe(msg => {
     fireAlerts.unshift(msg);
