@@ -4,7 +4,7 @@ source /mnt/c/Users/USER/Desktop/ARGOS/ros2_ws/install/setup.bash
 export DISPLAY=:0
 
 echo "Starting Nav2 + RViz2..."
-nohup ros2 launch my_robot_bringup nav2_sim.launch.py \
+nohup ros2 launch argos_bringup nav2_sim.launch.py \
   > /tmp/nav2_final.log 2>&1 &
 NAV2_PID=$!
 disown

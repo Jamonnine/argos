@@ -4,7 +4,7 @@ source /mnt/c/Users/USER/Desktop/ARGOS/ros2_ws/install/setup.bash
 export DISPLAY=:0
 
 echo "Starting SLAM Toolbox + RViz2..."
-nohup ros2 launch my_robot_bringup slam_sim.launch.py \
+nohup ros2 launch argos_bringup slam_sim.launch.py \
   > /tmp/slam.log 2>&1 &
 SLAM_PID=$!
 disown
