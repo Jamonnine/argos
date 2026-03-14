@@ -5,20 +5,25 @@
 ![ROS 2](https://img.shields.io/badge/ROS_2-Jazzy-blue)
 ![Gazebo](https://img.shields.io/badge/Gazebo-Harmonic-orange)
 ![License](https://img.shields.io/badge/License-Apache_2.0-green)
-![Robots](https://img.shields.io/badge/Robots-UGV_×2_+_Drone_×1-purple)
+![Robots](https://img.shields.io/badge/Robots-UGV_×3_+_Drone_×1-purple)
+![Portal](https://img.shields.io/badge/Portal-daegufire.ai.kr/argos-teal)
 
 이종 군집 소방 로봇 오케스트레이션 플랫폼.
 드론 + UGV(차량형) + 보행형 로봇이 **한 팀**으로 화재 현장을 자율 탐색하고, 화점을 감지하며, 실시간으로 정보를 공유하는 시스템.
 
 현직 소방관이 실제 소방 현장 운영 경험을 바탕으로 설계한 **Supervised Autonomy** 아키텍처 — 오케스트레이터가 "무엇을" 결정하고, 각 로봇이 "어떻게"를 자율 수행합니다.
 
+**[HEAT Portal](https://daegufire.ai.kr/argos)** 에서 실시간 모니터링 + 인터랙티브 전술 체험이 가능합니다.
+
 ## Highlights
 
-- **이종 군집 로봇**: UGV 2대 + 드론 1대가 동시에 실내 환경을 탐색
+- **이종 군집 로봇**: UGV 3대 + 드론 1대가 동시에 환경을 탐색
 - **자율 프론티어 탐색**: SLAM 맵에서 미탐색 경계를 자동 감지, 최적 프론티어로 이동
 - **열화상 화점 감지**: L8 카메라 시뮬레이션 + 적응형 임계값 기반 화점 분류 (low/medium/high/critical)
 - **중앙 지휘 시스템**: 오케스트레이터가 로봇 등록, 임무 할당, 긴급 정지, 단계 전환을 관리
-- **웹 대시보드**: rosbridge + roslibjs로 브라우저에서 실시간 임무 모니터링
+- **HEAT Portal 통합**: [daegufire.ai.kr/argos](https://daegufire.ai.kr/argos)에서 실시간 모니터링 + 인터랙티브 제어
+- **인터랙티브 전술 체험**: 맵 클릭 화재 생성, 로봇 개별 이동, 4종 진압 전술(직선/측방/포위/릴레이), 4종 시나리오 프리셋
+- **소방서 PC 호환**: Python 독립 서버로 WSL/ROS2 없이도 시뮬레이션 실행 가능
 - **소방 시나리오 자동 시연**: 7단계 상태 머신으로 이륙→탐색→화재감지→긴급정지→재개→착륙 자동 실행
 
 ## Architecture
@@ -234,15 +239,30 @@ NavigateToObject.srv  — AI 감지 객체로 이동
 DetectedObject.msg    — AI 감지 객체 (class, confidence, pose, distance)
 ```
 
-## Web Dashboard
+## Web Dashboard (HEAT Portal)
 
-브라우저에서 실시간 임무 모니터링:
+**[daegufire.ai.kr/argos](https://daegufire.ai.kr/argos)** 에서 실시간 임무 모니터링 + 인터랙티브 제어:
 
-- **미션 패널**: 현재 단계, 경과 시간(MM:SS), 로봇 수, 커버리지
-- **스테이지 타임라인**: INIT → EXPL → FIRE → RTN → DONE 진행 표시 (+ PAUSED 오버레이)
-- **로봇 테이블**: ID, 타입, 상태, 배터리, 임무, 프론티어 수, nav 에러
-- **2D 맵 캔버스**: 로봇 위치(UGV 사각/드론 삼각), 화점 마커, 이동 궤적(trail), 클릭 상세 팝업
-- **자동 재연결**: WebSocket 끊김 시 2초 후 자동 재연결 + 재구독
+### 모니터링
+- **미션 패널**: 현재 단계, 경과 시간(M:SS), 로봇/탐색률/화재 상태
+- **스테이지 타임라인**: 7단계 진행 표시 (색상 코딩)
+- **로봇 상태 카드**: ID, 타입, 상태, 배터리, 속도, 현재 임무
+- **2D 전술 맵**: 로봇 위치(UGV 원형/드론 다이아몬드), 화점 마커, 이동 궤적(trail), 건물/기지/구역
+- **화재 알림**: 심각도별 색상(위험/경고/주의), NEW 펄스 애니메이션
+
+### 인터랙티브 제어
+- **맵 클릭 화재 생성**: 원하는 위치에 화재 발생 → 로봇 자동 대응
+- **로봇 개별 이동**: 로봇 선택 → 맵 클릭으로 웨이포인트 지정
+- **진압 전술 선택**: 직선 접근 / 측방 우회 / 포위 진압 / 릴레이 교대
+- **시나리오 프리셋**: 건물화재 / 다중화점 / 창고화재 / 수색구조
+- **시뮬레이션 제어**: 속도(0.5x~4x), 통신 두절 토글, 화재 확산 토글
+- **긴급정지/재개**: 전 로봇 즉시 정지 + 위치 고정
+- **드론 이착륙**: 수동 이륙/착륙 명령
+
+### 연결 방식
+1. **런처 다운로드**: 포털에서 `.bat` 파일 다운로드 → 더블클릭
+2. **자동 감지**: WSL+ROS2 → Gazebo 풀 시뮬 / Python만 → 독립 서버
+3. **자동 연결**: rosbridge ws://localhost:9090 → 포털 자동 감지 + 연결
 
 ## Milestones
 
