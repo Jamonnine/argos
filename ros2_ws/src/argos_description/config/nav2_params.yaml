@@ -346,7 +346,9 @@ slam_toolbox:
     odom_frame: <robot_namespace>/odom
     map_frame: map
     base_frame: <robot_namespace>/base_footprint
-    scan_topic: scan
+    # scan_frame_relay 노드가 /scan(lidar_link) → /scan_base(base_footprint)로 변환.
+    # lidar_link TF lookup 실패(MessageFilter "queue is full") 우회.
+    scan_topic: scan_base
 
     # 지도 해상도
     resolution: 0.05

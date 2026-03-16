@@ -154,6 +154,25 @@ def generate_launch_description():
 
     # cmd_vel/odom 릴레이 제거: ros2_control.urdf.xacro의 remapping으로 직접 연결
 
+    # --- 6.5. scan_frame_relay — lidar_link TF 조회 실패 우회 ---
+    # 문제: Nav2 전체 스택 기동 시 slam_toolbox MessageFilter가
+    #   /scan(frame_id=lidar_link)의 TF 체인(odom→base_footprint→lidar_link)을
+    #   조회할 때 DDC odom TF 발행 지연으로 "queue is full" 반복 발생.
+    # 해결: /scan → /scan_base (frame_id=base_footprint)로 변환.
+    #   slam_toolbox는 base_footprint만 조회 → DDC가 직접 발행하여 안정적.
+    scan_relay = Node(
+        package='argos_bringup',
+        executable='scan_frame_relay',
+        name='scan_frame_relay',
+        parameters=[{
+            'use_sim_time': True,
+            'input_topic': 'scan',
+            'output_topic': 'scan_base',
+            'target_frame': 'base_footprint',
+        }],
+        output='screen',
+    )
+
     # --- 7. Nav2 + SLAM ---
     # DDC 활성화 완료 후 Nav2 기동 (odom TF 발행이 시작된 뒤 시작해야 함).
     # 이전: TimerAction(5.0) — wall time 기반이라 RTF 0.28x에서 DDC보다 먼저 시작됨.
@@ -169,13 +188,18 @@ def generate_launch_description():
             'autostart': 'True',
         }.items(),
     )
-    # DDC 완료 후 45초 대기: RTF 0.28x에서 DDC가 odom TF 첫 발행까지 ~100 wall-seconds.
+    # DDC 완료 후 처리:
+    #   1) scan_frame_relay 즉시 기동 (scan 릴레이를 Nav2 기동 전에 준비)
+    #   2) 45초 후 Nav2 기동 (RTF 0.28x 기준 odom TF 축적 대기)
+    # RTF 0.28x에서 DDC가 odom TF 첫 발행까지 ~100 wall-seconds.
     # DDC spawner 완료(~20s) + 45s = ~65s. odom 발행 시작(~125s)까지 60s 여유.
-    # 여유 시간 동안 DDC가 물리 시뮬과 동기화되어 odom TF 축적.
     nav2_after_ddc = RegisterEventHandler(
         event_handler=OnProcessExit(
             target_action=ddc_spawner,
-            on_exit=[TimerAction(period=45.0, actions=[nav2_include])],
+            on_exit=[
+                scan_relay,
+                TimerAction(period=45.0, actions=[nav2_include]),
+            ],
         )
     )
 

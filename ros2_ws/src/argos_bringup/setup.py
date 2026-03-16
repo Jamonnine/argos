@@ -56,6 +56,8 @@ setup(
             'step_detector = argos_bringup.step_detector_node:main',
             'px4_bridge = argos_bringup.px4_bridge_node:main',
             'mcp_robot_server = argos_bringup.mcp_robot_server:main',
+            # lidar_link TF 우회: /scan → /scan_base (frame_id=base_footprint) 릴레이
+            'scan_frame_relay = argos_bringup.scan_frame_relay:main',
         ],
     },
 )

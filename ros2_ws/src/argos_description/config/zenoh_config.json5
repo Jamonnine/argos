@@ -1,0 +1,48 @@
+{
+  // ARGOS Zenoh 통신 설정
+  // 사용: RMW_IMPLEMENTATION=rmw_zenoh_cpp ros2 launch argos_description navigation.launch.py
+  //
+  // 전제 조건 (WSL2):
+  //   sudo apt install ros-jazzy-rmw-zenoh-cpp
+  //   export RMW_IMPLEMENTATION=rmw_zenoh_cpp
+  //
+  // 기본 DDS(Fast-DDS) 대비 Zenoh 장점:
+  //   - NAT 환경(소방 현장 무선망) 투과성 우수
+  //   - 멀티캐스트 불가 환경에서도 gossip 라우팅으로 노드 검색
+  //   - 단일 TCP 세션으로 트래픽 집약 → 무선 대역폭 절약
+
+  mode: "peer",
+
+  // 수신 엔드포인트: 모든 인터페이스 7447 포트 바인딩
+  listen: {
+    endpoints: ["tcp/0.0.0.0:7447"]
+  },
+
+  // 원격 Zenoh 라우터 연결 (필요 시 IP 추가)
+  // 예: "tcp/192.168.1.100:7447"  ← 지휘차 또는 베이스스테이션
+  connect: {
+    endpoints: []
+  },
+
+  // 스카우팅(노드 자동 검색) 설정
+  scouting: {
+    // 소방 현장 WiFi: multicast 비활성화 (단방향 통신 선호, 간섭 최소화)
+    multicast: {
+      enabled: false
+    },
+    // gossip: 알려진 피어를 통해 노드 정보 전파 (unicast 기반)
+    gossip: {
+      enabled: true,
+      // gossip 유효 기간(ms): 현장 투입 평균 시간(30분) 이내
+      ttl: 1800000
+    }
+  },
+
+  // QoS 설정: 실시간 제어 우선
+  transport: {
+    unicast: {
+      // 소방 현장 불안정 무선망 대응: 재전송 5회
+      lowlatency: true
+    }
+  }
+}
