@@ -112,6 +112,9 @@ def generate_launch_description():
                 namespace=namespace,
             ),
             # SLAM (nav2_bringup의 slam_launch.py 재사용)
+            # 핵심: params_file_replaced 사용 — <robot_namespace>/ 치환된 버전
+            # 원본 params_file을 전달하면 slam_toolbox가 "<robot_namespace>/base_footprint"을
+            # 문자 그대로 프레임 이름으로 사용하여 TF lookup 100% 실패함
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
                     os.path.join(nav2_launch_dir, 'slam_launch.py')
@@ -122,7 +125,7 @@ def generate_launch_description():
                     'use_sim_time': use_sim_time,
                     'autostart': autostart,
                     'use_respawn': 'False',
-                    'params_file': params_file,
+                    'params_file': params_file_replaced,
                 }.items(),
             ),
             # Nav2 Navigation Nodes (docking 제외)
