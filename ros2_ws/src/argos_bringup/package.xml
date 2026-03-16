@@ -2,10 +2,10 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>argos_bringup</name>
-  <version>0.0.0</version>
-  <description>TODO: Package description</description>
-  <maintainer email="jamonnine@todo.todo">jamonnine</maintainer>
-  <license>TODO: License declaration</license>
+  <version>2.0.0</version>
+  <description>ARGOS core nodes: orchestrator, frontier explorer, hotspot detector, 8-sensor suite, drone controller, scenario runner</description>
+  <maintainer email="jamonnine@github.com">jamonnine</maintainer>
+  <license>Apache-2.0</license>
 
   <depend>rclpy</depend>
   <depend>argos_interfaces</depend>

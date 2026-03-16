@@ -251,7 +251,9 @@ class RobotStatusPublisher(Node):
         # UGV: TF2 변환 (SLAM이 map 프레임 제공)
         try:
             t = self.tf_buffer.lookup_transform(
-                self.map_frame, self.base_frame, rclpy.time.Time())
+                self.map_frame, self.base_frame,
+                rclpy.time.Time(),
+                timeout=rclpy.duration.Duration(seconds=0.1))
             pose = PoseStamped()
             pose.header = t.header
             pose.pose.position.x = t.transform.translation.x
@@ -259,7 +261,10 @@ class RobotStatusPublisher(Node):
             pose.pose.position.z = t.transform.translation.z
             pose.pose.orientation = t.transform.rotation
             return pose
-        except Exception:
+        except Exception as e:
+            self.get_logger().debug(
+                f'TF lookup failed ({self.map_frame}->{self.base_frame}): {e}',
+                throttle_duration_sec=5.0)
             return None
 
 

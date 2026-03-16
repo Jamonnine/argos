@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  argos:
+    build: .
+    container_name: argos-sim
+    environment:
+      - ROS_DOMAIN_ID=0
+      - RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+    volumes:
+      - ./ros2_ws/src:/ws/src  # 소스 마운트 (개발 모드)
+    network_mode: host
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    command: >
+      bash -c "source /opt/ros/jazzy/setup.bash &&
+               source /ws/install/setup.bash &&
+               ros2 launch argos_description demo.launch.py"

@@ -31,5 +31,17 @@ string[] robot_missions
 # 화재 대응
 string primary_responder              # 화재 대응 주담당 로봇 ID (없으면 빈 문자열)
 
+# 8중 센싱 현황 (v2)
+string gas_danger_level                # "safe"|"caution"|"danger"|"critical" — 현장 가스 위험도
+uint8 victims_detected_count           # 감지된 피해자 수
+uint8 blocked_areas_count              # 통행 차단 영역 수
+uint8 audio_alerts_count               # 최근 음향 이벤트 수
+
+# 임무 제한 (소방 전문가 권고: 부수 임무 모드)
+string[] mission_restrictions              # ["no_entry_zone_A", "monitor_only"] 등
+
+# 화재 확산 속도 (센서 퓨전: Kalman 추적)
+float32 fire_spread_rate_mps               # m/s (0=정지, >0.5=급속 확산)
+
 # 경과 시간
 float64 elapsed_sec

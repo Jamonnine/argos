@@ -245,27 +245,69 @@ class ScenarioRunner(Node):
             self.get_logger().info(
                 f'  WP{i}: ({wx:.1f}, {wy:.1f}, {wz:.1f})')
 
+    def _compute_fire_intensity(self, elapsed_sec: float) -> float:
+        """화재 강도 시간 함수 (시뮬 전문가 권고).
+
+        화재 발달 곡선:
+          성장기 (0~300초):   0→1 (제곱근 성장)
+          최성기 (300~600초): 1.0 (최대 강도)
+          감쇠기 (600초~):    1→0 (선형 감소)
+
+        Returns:
+            0.0~1.0 (화재 강도 비율)
+        """
+        if elapsed_sec < 300:
+            return min(1.0, (elapsed_sec / 300.0) ** 0.5)
+        elif elapsed_sec < 600:
+            return 1.0
+        else:
+            return max(0.0, 1.0 - (elapsed_sec - 600) / 300.0)
+
     def _simulate_fire(self):
-        """가짜 화재 감지 메시지를 UGV 열화상 토픽에 발행."""
-        # S1: thermal_pub가 미존재 시 안전 가드
+        """화재 감지 시뮬 — 시간에 따라 강도가 변하는 동적 화재."""
         if not self.simulate_fire or not hasattr(self, 'thermal_pub'):
             self.get_logger().warn('simulate_fire 비활성 또는 thermal_pub 미초기화')
             return
+
+        # 화재 시작 후 경과 시간
+        if not hasattr(self, '_fire_start_time'):
+            self._fire_start_time = self.get_clock().now()
+        fire_elapsed = (self.get_clock().now() - self._fire_start_time).nanoseconds / 1e9
+
+        # 화재 강도 곡선 적용
+        intensity = self._compute_fire_intensity(fire_elapsed)
+
+        # 강도에 따른 온도 (기저 293K=20°C ~ 최대 873K=600°C)
+        base_temp = 293.15
+        max_temp = 873.15
+        current_temp = base_temp + (max_temp - base_temp) * intensity
+
+        # 심각도 분류
+        if current_temp >= 673.15:
+            severity = 'critical'
+        elif current_temp >= 473.15:
+            severity = 'high'
+        elif current_temp >= 323.15:
+            severity = 'medium'
+        else:
+            severity = 'low'
+
         det = ThermalDetection()
         det.header.stamp = self.get_clock().now().to_msg()
         det.header.frame_id = 'thermal_camera_optical_link'
-        det.max_temperature_kelvin = 573.15   # 300°C → severity=high
-        det.mean_temperature_kelvin = 473.15
+        det.max_temperature_kelvin = current_temp
+        det.mean_temperature_kelvin = base_temp + (current_temp - base_temp) * 0.7
         det.bbox = RegionOfInterest(
             x_offset=80, y_offset=60, width=40, height=30, do_rectify=False)
         det.centroid_image = Point(x=100.0, y=75.0, z=0.0)
-        det.confidence = 0.95
-        det.severity = 'high'
-        det.area_ratio = 0.15
+        det.confidence = min(0.99, 0.3 + 0.7 * intensity)
+        det.severity = severity
+        det.area_ratio = 0.05 + 0.25 * intensity
         self.thermal_pub.publish(det)
         self.get_logger().info(
-            '  Published simulated thermal detection '
-            '(300C, severity=high)')
+            f'  Fire sim: {fire_elapsed:.0f}s elapsed, '
+            f'intensity={intensity:.2f}, '
+            f'{current_temp - 273.15:.0f}°C ({severity})')
 
 
 def main(args=None):

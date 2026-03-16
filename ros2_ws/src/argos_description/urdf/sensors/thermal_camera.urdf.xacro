@@ -51,14 +51,15 @@
       </material>
       <sensor name="${camera_name}" type="thermal_camera">
         <always_on>true</always_on>
-        <update_rate>10</update_rate>
+        <!-- HW 전문가 권고: 10→20Hz (화점 이동 추적 정밀도 향상) -->
+        <update_rate>20</update_rate>
         <topic>${topic}</topic>
         <gz_frame_id>${camera_name}_optical_link</gz_frame_id>
         <camera>
           <horizontal_fov>0.6981317</horizontal_fov>
           <image>
-            <width>160</width>
-            <height>120</height>
+            <width>320</width>
+            <height>240</height>
             <format>L8</format>
           </image>
           <clip>

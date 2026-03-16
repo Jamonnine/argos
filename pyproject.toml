@@ -1,0 +1,44 @@
+[project]
+name = "argos"
+version = "2.0.0"
+description = "Autonomous Robot Group Orchestration System — 이종 군집 소방 로봇"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+testpaths = ["ros2_ws/src/argos_bringup/test"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+addopts = "--ignore=ros2_ws/src/argos_bringup/test/test_copyright.py --ignore=ros2_ws/src/argos_bringup/test/test_flake8.py --ignore=ros2_ws/src/argos_bringup/test/test_pep257.py -v --tb=short"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks integration tests requiring ROS2",
+]
+
+[tool.black]
+line-length = 100
+target-version = ['py310']
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.coverage.run]
+# 커버리지 측정 대상: argos_bringup 패키지 소스
+source = ["ros2_ws/src/argos_bringup/argos_bringup"]
+omit = [
+    "*/test_*",
+    "*/__init__.py",
+]
+
+[tool.coverage.report]
+# 누락 라인 표시 + 60% 미달 시 실패
+show_missing = true
+fail_under = 60
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true

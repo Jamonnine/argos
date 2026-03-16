@@ -1,0 +1,66 @@
+# ARGOS rosdep 의존성 정의
+# 사용법: rosdep install --from-paths src --ignore-src -r -y --rosdistro jazzy
+# 참조: https://docs.ros.org/en/jazzy/Tutorials/Intermediate/Rosdep.html
+
+# Python 의존성
+python3-numpy:
+  ubuntu: [python3-numpy]
+  debian: [python3-numpy]
+
+python3-scipy:
+  ubuntu: [python3-scipy]
+  debian: [python3-scipy]
+
+python3-opencv:
+  ubuntu: [python3-opencv]
+  debian: [python3-opencv]
+
+python3-pytest:
+  ubuntu: [python3-pytest]
+  debian: [python3-pytest]
+
+python3-yaml:
+  ubuntu: [python3-yaml]
+  debian: [python3-yaml]
+
+# ROS 2 핵심 패키지
+ros2lifecycle:
+  ubuntu: [ros-jazzy-lifecycle]
+
+rclpy:
+  ubuntu: [ros-jazzy-rclpy]
+  debian: [ros-jazzy-rclpy]
+
+# Nav2 스택
+nav2-bringup:
+  ubuntu: [ros-jazzy-nav2-bringup]
+
+nav2-msgs:
+  ubuntu: [ros-jazzy-nav2-msgs]
+
+nav2-lifecycle-manager:
+  ubuntu: [ros-jazzy-nav2-lifecycle-manager]
+
+# 센서 드라이버 / 인터페이스
+sensor-msgs:
+  ubuntu: [ros-jazzy-sensor-msgs]
+
+geometry-msgs:
+  ubuntu: [ros-jazzy-geometry-msgs]
+
+nav-msgs:
+  ubuntu: [ros-jazzy-nav-msgs]
+
+std-srvs:
+  ubuntu: [ros-jazzy-std-srvs]
+
+# Gazebo / 시뮬레이션
+ros-gz:
+  ubuntu: [ros-jazzy-ros-gz]
+
+# TF2
+tf2-ros:
+  ubuntu: [ros-jazzy-tf2-ros]
+
+tf2-geometry-msgs:
+  ubuntu: [ros-jazzy-tf2-geometry-msgs]

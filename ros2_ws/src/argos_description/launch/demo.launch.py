@@ -90,14 +90,38 @@ def generate_launch_description():
     )
 
     # --- rosbridge WebSocket (웹 대시보드 자동 연결) ---
+    # E3: TLS 지원 (보안 전문가 권고)
+    #   ros2 launch argos_description demo.launch.py \
+    #     ssl:=true certfile:=/path/to/cert.pem keyfile:=/path/to/key.pem
+    #   자체 서명 인증서 생성:
+    #     openssl req -x509 -newkey rsa:4096 -nodes \
+    #       -keyout argos_key.pem -out argos_cert.pem -days 365 \
+    #       -subj "/CN=argos-robot"
     rosbridge_launch = PathJoinSubstitution([
         FindPackageShare('rosbridge_server'),
         'launch', 'rosbridge_websocket_launch.xml',
     ])
 
+    rosbridge_args = {
+        'port': '9090',
+        'address': '',
+        'max_message_size': '1000000',
+    }
+    # TLS 인자 전달 (ssl=true일 때만 활성)
+    ssl_val = LaunchConfiguration('ssl', default='false')
+    certfile_val = LaunchConfiguration('certfile', default='')
+    keyfile_val = LaunchConfiguration('keyfile', default='')
+
     rosbridge = IncludeLaunchDescription(
         AnyLaunchDescriptionSource(rosbridge_launch),
-        launch_arguments={'port': '9090'}.items(),
+        launch_arguments={
+            'port': '9090',
+            'address': '',
+            'max_message_size': '1000000',
+            'ssl': ssl_val,
+            'certfile': certfile_val,
+            'keyfile': keyfile_val,
+        }.items(),
     )
 
     web_dir = PathJoinSubstitution([

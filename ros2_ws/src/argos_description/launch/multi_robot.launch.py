@@ -55,6 +55,9 @@ def spawn_robot_group(robot_config, pkg_dir, urdf_file):
     )
 
     # --- Robot State Publisher ---
+    # frame_prefix 방식: TF는 글로벌 /tf에 발행하되 frame_id로 로봇 구분
+    # (gz_ros2_control이 namespace remapping을 무시하므로 /tf→tf remapping 제거)
+    # 검증: DARPA SubT CERBERUS 팀 패턴
     robot_state_publisher = Node(
         package='robot_state_publisher',
         executable='robot_state_publisher',
@@ -62,11 +65,8 @@ def spawn_robot_group(robot_config, pkg_dir, urdf_file):
         parameters=[{
             'robot_description': robot_description,
             'use_sim_time': True,
+            'frame_prefix': f'{name}/',  # base_footprint → argos1/base_footprint
         }],
-        remappings=[
-            ('/tf', 'tf'),
-            ('/tf_static', 'tf_static'),
-        ],
         output='screen',
     )
 

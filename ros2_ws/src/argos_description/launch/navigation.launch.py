@@ -42,6 +42,9 @@ def generate_launch_description():
     urdf_file = os.path.join(pkg_dir, 'urdf', 'argos_ugv.urdf.xacro')
     bridge_config = os.path.join(pkg_dir, 'config', 'gz_bridge.yaml')
     nav2_params = os.path.join(pkg_dir, 'config', 'nav2_params.yaml')
+    # FastDDS SHM 비활성화 파일: config/fastdds_no_shm.xml
+    # WSL2에서 필요 시 Nav2 전용으로 적용 (전역 적용 시 Gazebo 내부 통신 차단)
+    # 사용법: FASTRTPS_DEFAULT_PROFILES_FILE=... ros2 launch ...
 
     # --- Launch 인자 ---
     world_arg = DeclareLaunchArgument(
@@ -152,23 +155,28 @@ def generate_launch_description():
     # cmd_vel/odom 릴레이 제거: ros2_control.urdf.xacro의 remapping으로 직접 연결
 
     # --- 7. Nav2 + SLAM ---
-    # Gazebo가 /clock 퍼블리시를 시작한 뒤에 Nav2를 기동해야 함.
-    # TimerAction으로 5초 지연 (Gazebo 초기화 대기).
-    nav2_bringup = TimerAction(
-        period=5.0,
-        actions=[
-            IncludeLaunchDescription(
-                PythonLaunchDescriptionSource(
-                    os.path.join(pkg_dir, 'launch', 'argos_nav2_bringup.launch.py')
-                ),
-                launch_arguments={
-                    'use_sim_time': 'True',
-                    'slam': 'True',
-                    'params_file': nav2_params,
-                    'autostart': 'True',
-                }.items(),
-            ),
-        ],
+    # DDC 활성화 완료 후 Nav2 기동 (odom TF 발행이 시작된 뒤 시작해야 함).
+    # 이전: TimerAction(5.0) — wall time 기반이라 RTF 0.28x에서 DDC보다 먼저 시작됨.
+    # 수정: DDC 완료 이벤트에 체이닝 + 추가 5초 대기 (DDS 발견 시간 확보).
+    nav2_include = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(pkg_dir, 'launch', 'argos_nav2_bringup.launch.py')
+        ),
+        launch_arguments={
+            'use_sim_time': 'True',
+            'slam': 'True',
+            'params_file': nav2_params,
+            'autostart': 'True',
+        }.items(),
+    )
+    # DDC 완료 후 45초 대기: RTF 0.28x에서 DDC가 odom TF 첫 발행까지 ~100 wall-seconds.
+    # DDC spawner 완료(~20s) + 45s = ~65s. odom 발행 시작(~125s)까지 60s 여유.
+    # 여유 시간 동안 DDC가 물리 시뮬과 동기화되어 odom TF 축적.
+    nav2_after_ddc = RegisterEventHandler(
+        event_handler=OnProcessExit(
+            target_action=ddc_spawner,
+            on_exit=[TimerAction(period=45.0, actions=[nav2_include])],
+        )
     )
 
     # --- 8. 열화상 화점 감지 ---
@@ -214,7 +222,7 @@ def generate_launch_description():
         gz_bridge,
         jsb_after_spawn,
         ddc_after_jsb,
-        nav2_bringup,
+        nav2_after_ddc,
         hotspot_detector,
         frontier_explorer,
     ])

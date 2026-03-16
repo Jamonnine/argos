@@ -43,9 +43,18 @@ class DroneController(Node):
         self.declare_parameter('altitude_tolerance', 0.3)    # m
         self.declare_parameter('control_rate', 20.0)         # Hz
         self.declare_parameter('kp_horizontal', 0.8)         # P gain
+        self.declare_parameter('ki_horizontal', 0.05)        # I gain (PID 전환)
+        self.declare_parameter('kd_horizontal', 0.15)        # D gain (PID 전환)
         self.declare_parameter('kp_vertical', 1.0)           # P gain
+        self.declare_parameter('ki_vertical', 0.02)          # I gain
+        self.declare_parameter('kd_vertical', 0.1)           # D gain
         self.declare_parameter('kp_yaw', 0.5)                # P gain
-        self.declare_parameter('landing_timeout', 30.0)        # D2: 착륙 타임아웃 (초)
+        self.declare_parameter('landing_timeout', 30.0)      # D2: 착륙 타임아웃 (초)
+        self.declare_parameter('altitude_tolerance', 0.15)   # 0.3→0.15m (드론 전문가 권고)
+        # 배터리 모델 (드론 전문가 권고)
+        self.declare_parameter('battery_capacity_mah', 2000.0)
+        self.declare_parameter('battery_rtl_percent', 20.0)  # RTL 임계값 (%)
+        self.declare_parameter('power_consumption_w', 80.0)  # 호버링 평균 소비 전력
 
         self.cruise_alt = self.get_parameter('cruise_altitude').value
         self.max_h_speed = self.get_parameter('max_horizontal_speed').value
@@ -54,9 +63,43 @@ class DroneController(Node):
         self.alt_tol = self.get_parameter('altitude_tolerance').value
         rate = self.get_parameter('control_rate').value
         self.kp_h = self.get_parameter('kp_horizontal').value
+        self.ki_h = self.get_parameter('ki_horizontal').value
+        self.kd_h = self.get_parameter('kd_horizontal').value
         self.kp_v = self.get_parameter('kp_vertical').value
+        self.ki_v = self.get_parameter('ki_vertical').value
+        self.kd_v = self.get_parameter('kd_vertical').value
         self.kp_yaw = self.get_parameter('kp_yaw').value
         self.landing_timeout = self.get_parameter('landing_timeout').value
+
+        # 지오펜스 (드론 전문가 권고: 비행 범위 제한)
+        self.declare_parameter('geofence_x_min', -20.0)
+        self.declare_parameter('geofence_x_max', 20.0)
+        self.declare_parameter('geofence_y_min', -20.0)
+        self.declare_parameter('geofence_y_max', 20.0)
+        self.declare_parameter('geofence_z_max', 15.0)  # 최대 고도
+        self._geofence = {
+            'x': (self.get_parameter('geofence_x_min').value,
+                  self.get_parameter('geofence_x_max').value),
+            'y': (self.get_parameter('geofence_y_min').value,
+                  self.get_parameter('geofence_y_max').value),
+            'z_max': self.get_parameter('geofence_z_max').value,
+        }
+
+        # PID 상태 (적분/미분 항)
+        self._integral_h = [0.0, 0.0]  # [x, y] 적분 오차
+        self._integral_v = 0.0          # z 적분 오차
+        self._prev_error_h = [0.0, 0.0] # [x, y] 이전 오차
+        self._prev_error_v = 0.0        # z 이전 오차
+        self._integral_max = 5.0        # 적분 포화 방지
+
+        # 배터리 모델
+        battery_cap = self.get_parameter('battery_capacity_mah').value
+        self._battery_voltage = 14.8  # 4S LiPo 공칭 전압
+        self._battery_energy_wh = battery_cap * self._battery_voltage / 1000.0
+        self._battery_remaining_wh = self._battery_energy_wh
+        self._battery_rtl_percent = self.get_parameter('battery_rtl_percent').value
+        self._power_consumption = self.get_parameter('power_consumption_w').value
+        self._battery_rtl_triggered = False
 
         # --- State ---
         self.state = 'grounded'  # grounded, taking_off, hovering, flying, landing
@@ -65,6 +108,10 @@ class DroneController(Node):
         self.waypoint_queue = []
         self._wp_lock = threading.Lock()  # D1: waypoint_queue 스레드 안전
         self._landing_start_time = None   # D2: 착륙 시작 시각
+
+        # Failsafe (드론 전문가 권고): 오도메트리 손실 시 자동 착륙
+        self._odom_timeout_sec = 3.0      # N초 미수신 시 failsafe
+        self._last_odom_time = None
 
         # --- Subscribers ---
         self.odom_sub = self.create_subscription(
@@ -91,14 +138,14 @@ class DroneController(Node):
     # ─────────────────── Callbacks ───────────────────
 
     def odom_callback(self, msg: Odometry):
-        """오도메트리로 현재 위치 갱신."""
+        """오도메트리로 현재 위치 갱신 + failsafe 타이머 리셋."""
         p = msg.pose.pose.position
         q = msg.pose.pose.orientation
-        # 쿼터니언 → yaw (간단 변환)
         yaw = math.atan2(
             2.0 * (q.w * q.z + q.x * q.y),
             1.0 - 2.0 * (q.y * q.y + q.z * q.z))
         self.current_pose = (p.x, p.y, p.z, yaw)
+        self._last_odom_time = self.get_clock().now()
 
     def waypoint_callback(self, msg: PoseStamped):
         """웨이포인트 수신 → 항상 큐에 추가, hovering이면 즉시 출발."""
@@ -124,6 +171,26 @@ class DroneController(Node):
                     f'Flying to ({self.target_waypoint[0]:.1f}, '
                     f'{self.target_waypoint[1]:.1f}, '
                     f'{self.target_waypoint[2]:.1f})')
+
+    def _check_drone_collision(self, target_x, target_y, target_z,
+                               safety_radius=3.0) -> bool:
+        """멀티드론 충돌 위험 체크 (드론 전문가 권고).
+
+        다른 드론의 위치와 대상 위치 간 거리가 safety_radius 이내면 True.
+        현재: 오케스트레이터가 관리하므로 여기서는 로컬 체크만.
+        """
+        # 단일 드론 환경에서는 항상 False
+        # 멀티드론 환경에서는 /exploration/targets 구독으로 확인
+        if hasattr(self, '_other_drone_positions'):
+            for ox, oy, oz in self._other_drone_positions:
+                dist = math.sqrt(
+                    (target_x - ox)**2 + (target_y - oy)**2 + (target_z - oz)**2)
+                if dist < safety_radius:
+                    self.get_logger().warn(
+                        f'DRONE COLLISION RISK: target ({target_x:.1f},{target_y:.1f},{target_z:.1f}) '
+                        f'too close to other drone ({ox:.1f},{oy:.1f},{oz:.1f}) dist={dist:.1f}m')
+                    return True
+        return False
 
     def takeoff_callback(self, request, response):
         """이륙 서비스."""
@@ -163,13 +230,44 @@ class DroneController(Node):
 
     # ─────────────────── Control Loop ───────────────────
 
+    def _check_geofence(self, x, y, z) -> bool:
+        """지오펜스 범위 체크. 범위 밖이면 True (위반)."""
+        gf = self._geofence
+        if x < gf['x'][0] or x > gf['x'][1]:
+            return True
+        if y < gf['y'][0] or y > gf['y'][1]:
+            return True
+        if z > gf['z_max']:
+            return True
+        return False
+
     def control_loop(self):
-        """P 제어기 기반 속도 명령 생성."""
+        """PID 제어기 기반 속도 명령 생성 (v2: P→PID 전환)."""
         if self.current_pose is None:
             return
 
+        # Failsafe: 오도메트리 N초 미수신 시 자동 착륙 (드론 전문가 권고)
+        if (self._last_odom_time is not None and
+                self.state not in ('grounded', 'landing')):
+            odom_age = (self.get_clock().now() - self._last_odom_time).nanoseconds / 1e9
+            if odom_age > self._odom_timeout_sec:
+                self.get_logger().error(
+                    f'ODOM TIMEOUT ({odom_age:.1f}s) — FAILSAFE AUTO LAND')
+                self.state = 'landing'
+                self._landing_start_time = self.get_clock().now()
+                x, y, _, _ = self.current_pose
+                self.target_waypoint = (x, y, 0.0)
+
         cmd = Twist()
         x, y, z, yaw = self.current_pose
+
+        # 지오펜스 체크 (비행 중에만)
+        if self.state not in ('grounded',) and self._check_geofence(x, y, z):
+            self.get_logger().error(
+                f'GEOFENCE VIOLATION at ({x:.1f}, {y:.1f}, {z:.1f}) — AUTO LAND')
+            self.state = 'landing'
+            self._landing_start_time = self.get_clock().now()
+            self.target_waypoint = (x, y, 0.0)
 
         if self.state == 'grounded':
             self.cmd_pub.publish(cmd)  # 정지
@@ -189,19 +287,51 @@ class DroneController(Node):
         dz = tz - z
         h_dist = math.hypot(dx, dy)
 
-        # --- 수직 제어 (고도) ---
-        vz = self._clamp(self.kp_v * dz, -self.max_v_speed, self.max_v_speed)
+        # --- 배터리 시뮬레이션 (비행 중 소비) ---
+        if self.state not in ('grounded',):
+            dt = 1.0 / self.get_parameter('control_rate').value
+            self._battery_remaining_wh -= self._power_consumption * dt / 3600.0
+            battery_percent = max(0.0, self._battery_remaining_wh / self._battery_energy_wh * 100.0)
+            if battery_percent <= self._battery_rtl_percent and not self._battery_rtl_triggered:
+                self._battery_rtl_triggered = True
+                self.get_logger().error(
+                    f'BATTERY LOW ({battery_percent:.0f}%) — AUTO RTL')
+                self.state = 'landing'
+                self._landing_start_time = self.get_clock().now()
+                if self.current_pose:
+                    self.target_waypoint = (x, y, 0.0)
+
+        # --- 수직 PID 제어 (고도) ---
+        self._integral_v = self._clamp(
+            self._integral_v + dz, -self._integral_max, self._integral_max)
+        d_error_v = dz - self._prev_error_v
+        self._prev_error_v = dz
+        vz = self._clamp(
+            self.kp_v * dz + self.ki_v * self._integral_v + self.kd_v * d_error_v,
+            -self.max_v_speed, self.max_v_speed)
         cmd.linear.z = vz
 
-        # --- 수평 제어 (바디 프레임 변환) ---
-        # 월드→바디 회전
+        # --- 수평 PID 제어 (바디 프레임 변환) ---
         cos_yaw = math.cos(-yaw)
         sin_yaw = math.sin(-yaw)
         body_dx = cos_yaw * dx - sin_yaw * dy
         body_dy = sin_yaw * dx + cos_yaw * dy
 
-        vx = self._clamp(self.kp_h * body_dx, -self.max_h_speed, self.max_h_speed)
-        vy = self._clamp(self.kp_h * body_dy, -self.max_h_speed, self.max_h_speed)
+        # PID: 적분 + 미분 항 추가
+        self._integral_h[0] = self._clamp(
+            self._integral_h[0] + body_dx, -self._integral_max, self._integral_max)
+        self._integral_h[1] = self._clamp(
+            self._integral_h[1] + body_dy, -self._integral_max, self._integral_max)
+        d_error_hx = body_dx - self._prev_error_h[0]
+        d_error_hy = body_dy - self._prev_error_h[1]
+        self._prev_error_h = [body_dx, body_dy]
+
+        vx = self._clamp(
+            self.kp_h * body_dx + self.ki_h * self._integral_h[0] + self.kd_h * d_error_hx,
+            -self.max_h_speed, self.max_h_speed)
+        vy = self._clamp(
+            self.kp_h * body_dy + self.ki_h * self._integral_h[1] + self.kd_h * d_error_hy,
+            -self.max_h_speed, self.max_h_speed)
         cmd.linear.x = vx
         cmd.linear.y = vy
 

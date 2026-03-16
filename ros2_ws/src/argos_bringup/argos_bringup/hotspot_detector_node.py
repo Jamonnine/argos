@@ -13,11 +13,17 @@ L8 카메라 특성:
   구독: thermal/image_raw (sensor_msgs/Image, mono8)
   발행: thermal/detections (ThermalDetection[])
         thermal/hotspot_viz (sensor_msgs/Image, 디버그 시각화)
+
+LifecycleNode 상태:
+  unconfigured → configure() → inactive
+  inactive     → activate()  → active (구독/발행 활성, bridge 준비됨)
+  active       → deactivate() → inactive (구독/발행 해제)
+  inactive     → cleanup()   → unconfigured
 """
 
 import numpy as np
 import rclpy
-from rclpy.node import Node
+from rclpy.lifecycle import LifecycleNode, TransitionCallbackReturn, State
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from sensor_msgs.msg import Image, RegionOfInterest
 from geometry_msgs.msg import Point
@@ -30,8 +36,16 @@ from cv_bridge import CvBridge
 import cv2
 
 
-class HotspotDetectorNode(Node):
-    """열화상 이미지에서 화점을 감지하는 노드."""
+class HotspotDetectorNode(LifecycleNode):
+    """열화상 이미지에서 화점을 감지하는 노드.
+
+    LifecycleNode 패턴:
+    - __init__  : 파라미터 선언만 수행 (토픽·bridge 생성 금지)
+    - on_configure  : 파라미터 읽기 + bridge 생성 + 상태 초기화
+    - on_activate   : 구독/발행 생성 → 감지 시작
+    - on_deactivate : 구독/발행 해제 → 감지 중단
+    - on_cleanup    : 내부 상태 리셋
+    """
 
     # L8 카메라 기본 resolution (K/pixel)
     L8_RESOLUTION = 3.0
@@ -41,15 +55,39 @@ class HotspotDetectorNode(Node):
     def __init__(self):
         super().__init__('hotspot_detector')
 
-        # --- 파라미터 ---
+        # ── 파라미터 선언만 (activate 전에는 토픽·bridge 생성 금지) ──
         self.declare_parameter('top_percent', 0.05)     # 상위 5% 고온 픽셀
         self.declare_parameter('min_area', 20)           # 최소 화점 면적 (px)
         self.declare_parameter('l8_resolution', 3.0)     # K/pixel
         self.declare_parameter('l8_min_temp', 253.15)    # 최소 온도 (K)
         self.declare_parameter('severity_thresholds',    # 심각도 온도 기준 (K)
                                [323.15, 473.15, 673.15])  # 50°C, 200°C, 400°C
-        self.declare_parameter('max_detections', 1)   # H4: 프레임당 최대 발행 화점 수
+        self.declare_parameter('max_detections', 5)   # H4: 프레임당 최대 발행 화점 수 (센서퓨전 권고: 1→5)
 
+        # 런타임 상태 (on_configure에서 초기화)
+        self.top_percent = None
+        self.min_area = None
+        self.l8_resolution = None
+        self.l8_min_temp = None
+        self.severity_thresholds = None
+        self.max_detections = None
+        self.bridge = None  # on_configure에서 생성
+        self._last_publish_time = None
+        self._publish_cooldown = 1.0
+
+        # 구독/발행 핸들 (on_activate에서 생성, on_deactivate에서 해제)
+        self.sub_thermal = None
+        self.pub_detection = None
+        self.pub_viz = None
+
+    # ─────────────────── Lifecycle Callbacks ───────────────────
+
+    def on_configure(self, state: State) -> TransitionCallbackReturn:
+        """파라미터 읽기 + bridge 생성 + 내부 상태 초기화.
+
+        inactive 상태로 진입 전 호출됨. 여기서 ROS 토픽은 만들지 않는다.
+        bridge 객체는 ROS 통신 없이 순수 변환 유틸리티이므로 on_configure에서 생성.
+        """
         self.top_percent = self.get_parameter('top_percent').value
         self.min_area = self.get_parameter('min_area').value
         self.l8_resolution = self.get_parameter('l8_resolution').value
@@ -64,10 +102,21 @@ class HotspotDetectorNode(Node):
         self.severity_thresholds = severity_list
         self.max_detections = self.get_parameter('max_detections').value
 
+        # bridge 객체는 on_configure에서 생성 (ROS 통신 없는 순수 변환 유틸리티)
         self.bridge = CvBridge()
         self._last_publish_time = None
-        self._publish_cooldown = 1.0  # 초 — 화점 발행 최소 간격
+        self._publish_cooldown = 1.0
 
+        self.get_logger().info(
+            f'Hotspot detector configured (top {self.top_percent*100:.0f}%, '
+            f'min_area={self.min_area}px)')
+        return TransitionCallbackReturn.SUCCESS
+
+    def on_activate(self, state: State) -> TransitionCallbackReturn:
+        """구독/발행 생성 → 감지 시작.
+
+        active 상태로 진입 전 호출됨.
+        """
         # --- QoS: 센서 데이터 (Best Effort, 최신 1개만) ---
         sensor_qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -86,8 +135,43 @@ class HotspotDetectorNode(Node):
             Image, 'thermal/hotspot_viz', sensor_qos)
 
         self.get_logger().info(
-            f'Hotspot detector started (top {self.top_percent*100:.0f}%, '
+            f'Hotspot detector activated (top {self.top_percent*100:.0f}%, '
             f'min_area={self.min_area}px)')
+        return TransitionCallbackReturn.SUCCESS
+
+    def on_deactivate(self, state: State) -> TransitionCallbackReturn:
+        """구독/발행 해제 → 감지 중단.
+
+        inactive 상태로 진입 전 호출됨.
+        """
+        if self.sub_thermal is not None:
+            self.destroy_subscription(self.sub_thermal)
+            self.sub_thermal = None
+
+        if self.pub_detection is not None:
+            self.destroy_publisher(self.pub_detection)
+            self.pub_detection = None
+
+        if self.pub_viz is not None:
+            self.destroy_publisher(self.pub_viz)
+            self.pub_viz = None
+
+        self.get_logger().info('Hotspot detector deactivated')
+        return TransitionCallbackReturn.SUCCESS
+
+    def on_cleanup(self, state: State) -> TransitionCallbackReturn:
+        """내부 상태 리셋 → unconfigured로 복귀."""
+        self.bridge = None
+        self._last_publish_time = None
+        self.get_logger().info('Hotspot detector cleaned up')
+        return TransitionCallbackReturn.SUCCESS
+
+    def on_shutdown(self, state: State) -> TransitionCallbackReturn:
+        """종료 시 정리."""
+        self.get_logger().info('Hotspot detector shutting down')
+        return TransitionCallbackReturn.SUCCESS
+
+    # ─────────────────── 핵심 로직 ───────────────────
 
     def pixel_to_kelvin(self, pixel_value: float) -> float:
         """L8 픽셀값 → 추정 온도(K) 변환."""
@@ -231,13 +315,23 @@ class HotspotDetectorNode(Node):
 def main(args=None):
     rclpy.init(args=args)
     node = HotspotDetectorNode()
+
+    # LifecycleNode 단독 실행 시 수동으로 configure → activate 전환
+    node.trigger_configure()
+    node.trigger_activate()
+
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, rclpy.executors.ExternalShutdownException):
         pass
     finally:
+        node.trigger_deactivate()
+        node.trigger_cleanup()
         node.destroy_node()
-        rclpy.shutdown()
+        try:
+            rclpy.shutdown()
+        except Exception:
+            pass
 
 
 if __name__ == '__main__':

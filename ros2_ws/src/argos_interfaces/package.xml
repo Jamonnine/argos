@@ -1,9 +1,9 @@
 <?xml version="1.0"?>
 <package format="3">
   <name>argos_interfaces</name>
-  <version>0.0.1</version>
-  <description>Custom interfaces (actions, messages, services) for argos_bringup</description>
-  <maintainer email="jamonnine@todo.todo">jamonnine</maintainer>
+  <version>2.0.0</version>
+  <description>ARGOS custom interfaces: 10 msg (8-sensor suite + fire/mission) + 1 srv + 2 action</description>
+  <maintainer email="jamonnine@github.com">jamonnine</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>

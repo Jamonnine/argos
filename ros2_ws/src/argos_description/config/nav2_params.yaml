@@ -32,7 +32,8 @@ lifecycle_manager_navigation:
 bt_navigator:
   ros__parameters:
     global_frame: map
-    robot_base_frame: base_footprint
+    # frame_prefix 방식: <robot_namespace>/ → argos1/ 런타임 치환 (argos_nav2_bringup ReplaceString)
+    robot_base_frame: <robot_namespace>/base_footprint
     transform_tolerance: 0.5
     # BT XML: 빈 문자열 제거 — Nav2 기본 BT 사용
     always_reload_bt_xml: false
@@ -44,6 +45,8 @@ bt_navigator:
 
 controller_server:
   ros__parameters:
+    # Jazzy: DDC가 TwistStamped만 수신 → 전체 velocity chain TwistStamped 통일
+    enable_stamped_cmd_vel: true
     controller_frequency: 20.0   # MPPI는 고빈도 제어가 효과적 (DWB 10Hz → 20Hz)
     min_x_velocity_threshold: 0.001
     min_theta_velocity_threshold: 0.001
@@ -146,8 +149,9 @@ local_costmap:
     ros__parameters:
       update_frequency: 5.0
       publish_frequency: 2.0
-      global_frame: odom
-      robot_base_frame: base_footprint
+      # frame_prefix 방식: <robot_namespace>/ → argos1/ 런타임 치환
+      global_frame: <robot_namespace>/odom
+      robot_base_frame: <robot_namespace>/base_footprint
       rolling_window: true
       width: 5
       height: 5
@@ -181,7 +185,8 @@ global_costmap:
       update_frequency: 1.0
       publish_frequency: 1.0
       global_frame: map
-      robot_base_frame: base_footprint
+      # frame_prefix 방식: <robot_namespace>/ → argos1/ 런타임 치환
+      robot_base_frame: <robot_namespace>/base_footprint
       transform_tolerance: 0.5
       # ARGOS 0.6×0.4m + 안전 여유 5cm
       footprint: "[[0.35, 0.25], [0.35, -0.25], [-0.35, -0.25], [-0.35, 0.25]]"
@@ -234,6 +239,7 @@ planner_server:
 
 behavior_server:
   ros__parameters:
+    enable_stamped_cmd_vel: true
     local_costmap_topic: local_costmap/costmap_raw
     local_footprint_topic: local_costmap/published_footprint
     global_costmap_topic: global_costmap/costmap_raw
@@ -248,9 +254,10 @@ behavior_server:
       plugin: "nav2_behaviors::DriveOnHeading"
     wait:
       plugin: "nav2_behaviors::Wait"
-    local_frame: odom
+    # frame_prefix 방식: <robot_namespace>/ → argos1/ 런타임 치환
+    local_frame: <robot_namespace>/odom
     global_frame: map
-    robot_base_frame: base_footprint
+    robot_base_frame: <robot_namespace>/base_footprint
     transform_timeout: 0.1
     simulate_ahead_time: 2.0
     max_rotational_vel: 1.5
@@ -262,6 +269,8 @@ velocity_smoother:
     smoothing_frequency: 20.0
     scale_velocities: false
     feedback: "OPEN_LOOP"
+    # Jazzy: TwistStamped 체인 통일 (DDC 호환)
+    enable_stamped_cmd_vel: true
     max_velocity: [0.5, 0.0, 1.5]
     min_velocity: [-0.5, 0.0, -1.5]
     deadband_velocity: [0.0, 0.0, 0.0]
@@ -283,10 +292,13 @@ waypoint_follower:
 
 collision_monitor:
   ros__parameters:
-    base_frame_id: "base_footprint"
-    odom_frame_id: "odom"
+    # frame_prefix 방식: <robot_namespace>/ → argos1/ 런타임 치환
+    base_frame_id: "<robot_namespace>/base_footprint"
+    odom_frame_id: "<robot_namespace>/odom"
     cmd_vel_in_topic: "cmd_vel_smoothed"
     cmd_vel_out_topic: "cmd_vel"
+    # Jazzy: diff_drive_controller는 TwistStamped만 수신 → collision_monitor도 TwistStamped 출력
+    enable_stamped_cmd_vel: true
     transform_tolerance: 0.5
     source_timeout: 5.0
     base_shift_correction: true
@@ -321,6 +333,8 @@ collision_monitor:
 # ===== slam_toolbox (nav2_bringup slam=True 모드에서 사용) =====
 slam_toolbox:
   ros__parameters:
+    # 명시적 use_sim_time (GroupAction SetParameter 전파 보장 안 됨)
+    use_sim_time: true
     solver_plugin: solver_plugins::CeresSolver
     ceres_linear_solver: SPARSE_NORMAL_CHOLESKY
     ceres_preconditioner: SCHUR_JACOBI
@@ -328,10 +342,10 @@ slam_toolbox:
     ceres_dogleg_type: TRADITIONAL_DOGLEG
     ceres_loss_function: None
 
-    # 좌표계 (diff_drive_controller와 통일)
-    odom_frame: odom
+    # 좌표계: frame_prefix 방식 — <robot_namespace>/ → argos1/ 런타임 치환
+    odom_frame: <robot_namespace>/odom
     map_frame: map
-    base_frame: base_footprint
+    base_frame: <robot_namespace>/base_footprint
     scan_topic: scan
 
     # 지도 해상도
@@ -380,7 +394,8 @@ slam_toolbox:
     transform_publish_period: 0.02
     map_update_interval: 5.0
     tf_buffer_duration: 30.0
-    transform_timeout: 0.2
+    # WSL2: FastRTPS SHM 실패 시 TF 도착 지연 → 타임아웃 여유 확보 (0.2→2.0)
+    transform_timeout: 2.0
 
     # WSL2 환경
     stack_size_to_use: 40000000

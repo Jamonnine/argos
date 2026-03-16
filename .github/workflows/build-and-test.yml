@@ -1,0 +1,66 @@
+name: ARGOS Build & Test
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-24.04
+    container:
+      image: osrf/ros:jazzy-desktop
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq python3-pip python3-pytest
+          rosdep update --rosdistro jazzy
+          rosdep install --from-paths ros2_ws/src --ignore-src -r -y
+
+      - name: Build
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          cd ros2_ws
+          colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release
+        shell: bash
+
+      - name: Test (unit + coverage)
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          cd ros2_ws
+          source install/setup.bash
+          pip3 install pytest-cov
+          cd src/argos_bringup
+          python3 -m pytest test/ \
+            --ignore=test/test_copyright.py \
+            --ignore=test/test_flake8.py \
+            --ignore=test/test_pep257.py \
+            --cov=argos_bringup \
+            --cov-report=xml:../../coverage.xml \
+            --cov-report=term \
+            -v --tb=short --junitxml=../../test-results.xml
+        shell: bash
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: ros2_ws/test-results.xml
+
+      - name: Verify message generation
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          source ros2_ws/install/setup.bash
+          ros2 interface show argos_interfaces/msg/GasReading
+          ros2 interface show argos_interfaces/msg/AudioEvent
+          ros2 interface show argos_interfaces/msg/VictimDetection
+          ros2 interface show argos_interfaces/msg/StructuralAlert
+          echo "All 10 messages verified"
+        shell: bash

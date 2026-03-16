@@ -35,6 +35,12 @@ Nav2 NavigateToPose 액션으로 자율 탐색을 수행한다.
         exploration/frontiers_viz (MarkerArray, RViz 시각화)
   서비스: exploration/resume (Trigger)
   액션: navigate_to_pose (NavigateToPose, Nav2)
+
+LifecycleNode 상태:
+  unconfigured → configure() → inactive
+  inactive     → activate()  → active (구독/발행/타이머/ActionClient/TF2 활성)
+  active       → deactivate() → inactive (타이머·토픽·ActionClient 중단)
+  inactive     → cleanup()   → unconfigured
 """
 
 import math
@@ -44,7 +50,7 @@ import numpy as np
 import cv2
 
 import rclpy
-from rclpy.node import Node
+from rclpy.lifecycle import LifecycleNode, TransitionCallbackReturn, State
 from rclpy.action import ActionClient
 from action_msgs.msg import GoalStatus
 from rclpy.callback_groups import ReentrantCallbackGroup
@@ -61,13 +67,15 @@ from argos_interfaces.msg import ThermalDetection
 from tf2_ros import Buffer, TransformListener
 
 
-class FrontierExplorer(Node):
+class FrontierExplorer(LifecycleNode):
 
     def __init__(self):
         super().__init__('frontier_explorer')
 
-        # --- Parameters ---
-        self.declare_parameter('min_frontier_size', 8)
+        # ── 파라미터 선언만 (activate 전에는 토픽·타이머·ActionClient·TF2 생성 금지) ──
+        # Nav 전문가 권고: 해상도 5cm일 때 8셀=0.2m². 방화문(1.2m) 감지에 부족.
+        # 20셀=0.5m²으로 상향. 탐색 초기에는 작은 프론티어도 허용(동적 조정 예정).
+        self.declare_parameter('min_frontier_size', 20)
         self.declare_parameter('exclusion_radius', 2.0)
         self.declare_parameter('blacklist_radius', 1.0)
         self.declare_parameter('exploration_rate', 1.0)
@@ -76,36 +84,93 @@ class FrontierExplorer(Node):
         self.declare_parameter('map_frame', 'map')
         self.declare_parameter('base_frame', 'base_footprint')
 
-        self.min_frontier_size = self.get_parameter('min_frontier_size').value
-        self.exclusion_radius = self.get_parameter('exclusion_radius').value
-        self.blacklist_radius = self.get_parameter('blacklist_radius').value
-        exploration_rate = self.get_parameter('exploration_rate').value
-        self.robot_name = self.get_parameter('robot_name').value
-        self.map_frame = self.get_parameter('map_frame').value
-        self.base_frame = self.get_parameter('base_frame').value
-        thermal_pause_enabled = self.get_parameter('thermal_pause').value
-
-        # --- State ---
+        # 런타임 상태 (on_configure에서 초기화)
+        self.min_frontier_size = None
+        self.exclusion_radius = None
+        self.blacklist_radius = None
+        self.robot_name = None
+        self.map_frame = None
+        self.base_frame = None
+        self.thermal_pause_enabled = None
         self.current_map = None
-        self.blacklisted = deque(maxlen=200)  # [(x, y), ...] 방문/실패 프론티어
-        self.other_targets = {}         # {robot_name: (x, y)}
-        self.current_goal = None        # (x, y)
+        self.blacklisted = None
+        self.other_targets = {}
+        self.current_goal = None
         self.navigating = False
         self.paused = False
         self.exploration_complete = False
         self.nav_goal_handle = None
-        self.no_frontier_count = 0      # 연속 프론티어 미발견 횟수
-        self.nav_server_ready = False   # Nav2 서버 가용 플래그
-        self._nav_lock = threading.Lock()  # navigating 상태 보호
-        self._goal_cancelled = False   # 열화상 등으로 의도적 취소 시 블랙리스트 방지
-        self.nav_error_count = 0       # Nav2 실패 횟수 추적
+        self.no_frontier_count = 0
+        self.nav_server_ready = False
+        self._nav_lock = None
+        self._goal_cancelled = False
+        self.nav_error_count = 0
 
-        # --- TF2 (로봇 위치 조회) ---
-        self.tf_buffer = Buffer()
-        self.tf_listener = TransformListener(self.tf_buffer, self)
+        # 구독/발행/타이머/ActionClient/TF2 핸들
+        # (on_activate에서 생성, on_deactivate에서 해제)
+        self.map_sub = None
+        self.thermal_sub = None
+        self.peers_sub = None
+        self.target_pub = None
+        self.status_pub = None
+        self.frontier_viz_pub = None
+        self.frontier_count_pub = None
+        self.nav_error_pub = None
+        self.resume_srv = None
+        self.nav_client = None
+        self.server_check_timer = None
+        self.explore_timer = None
+        self.tf_buffer = None
+        self.tf_listener = None
+        self._cb_group = None
+
+    # ─────────────────── Lifecycle Callbacks ───────────────────
+
+    def on_configure(self, state: State) -> TransitionCallbackReturn:
+        """파라미터 읽기 + 내부 상태 초기화.
+
+        inactive 상태로 진입 전 호출됨. 여기서 ROS 통신은 만들지 않는다.
+        """
+        self.min_frontier_size = self.get_parameter('min_frontier_size').value
+        self.exclusion_radius = self.get_parameter('exclusion_radius').value
+        self.blacklist_radius = self.get_parameter('blacklist_radius').value
+        self.robot_name = self.get_parameter('robot_name').value
+        self.map_frame = self.get_parameter('map_frame').value
+        self.base_frame = self.get_parameter('base_frame').value
+        self.thermal_pause_enabled = self.get_parameter('thermal_pause').value
+
+        # 상태 초기화
+        self.current_map = None
+        self.blacklisted = deque(maxlen=200)
+        self.other_targets = {}
+        self.current_goal = None
+        self.navigating = False
+        self.paused = False
+        self.exploration_complete = False
+        self.nav_goal_handle = None
+        self.no_frontier_count = 0
+        self.nav_server_ready = False
+        self._nav_lock = threading.Lock()
+        self._goal_cancelled = False
+        self.nav_error_count = 0
+
+        self.get_logger().info(
+            f'FrontierExplorer configured (robot: {self.robot_name or "single"})')
+        return TransitionCallbackReturn.SUCCESS
+
+    def on_activate(self, state: State) -> TransitionCallbackReturn:
+        """구독/발행/타이머/ActionClient/TF2 생성 → 활성화.
+
+        active 상태로 진입 전 호출됨.
+        """
+        exploration_rate = self.get_parameter('exploration_rate').value
 
         # --- Callback group ---
-        cb_group = ReentrantCallbackGroup()
+        self._cb_group = ReentrantCallbackGroup()
+
+        # --- TF2 (로봇 위치 조회) — on_activate에서 생성 ---
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
 
         # --- QoS ---
         map_qos = QoSProfile(
@@ -123,7 +188,7 @@ class FrontierExplorer(Node):
         self.map_sub = self.create_subscription(
             OccupancyGrid, 'map', self.map_callback, map_qos)
 
-        if thermal_pause_enabled:
+        if self.thermal_pause_enabled:
             self.thermal_sub = self.create_subscription(
                 ThermalDetection, 'thermal/detections',
                 self.thermal_callback, sensor_qos)
@@ -149,10 +214,10 @@ class FrontierExplorer(Node):
         self.resume_srv = self.create_service(
             Trigger, 'exploration/resume', self.resume_callback)
 
-        # --- Nav2 Action Client ---
+        # --- Nav2 Action Client — on_activate에서 생성 ---
         self.nav_client = ActionClient(
             self, NavigateToPose, 'navigate_to_pose',
-            callback_group=cb_group)
+            callback_group=self._cb_group)
 
         # --- Nav2 서버 체크 타이머 (블로킹 방지) ---
         self.server_check_timer = self.create_timer(
@@ -163,7 +228,106 @@ class FrontierExplorer(Node):
             1.0 / exploration_rate, self.explore_cycle)
 
         self.get_logger().info(
-            f'FrontierExplorer ready (robot: {self.robot_name or "single"})')
+            f'FrontierExplorer activated (robot: {self.robot_name or "single"})')
+        return TransitionCallbackReturn.SUCCESS
+
+    def on_deactivate(self, state: State) -> TransitionCallbackReturn:
+        """타이머 취소 + 구독/발행/ActionClient/TF2 해제 → 중단.
+
+        inactive 상태로 진입 전 호출됨.
+        """
+        # 진행 중인 Nav2 goal 취소 (graceful shutdown)
+        with self._nav_lock:
+            handle = self.nav_goal_handle
+        if handle is not None:
+            self.get_logger().info('Cancelling active Nav2 goal...')
+            handle.cancel_goal_async()
+            self.nav_goal_handle = None
+
+        # 타이머 취소
+        if self.server_check_timer is not None:
+            self.server_check_timer.cancel()
+            self.destroy_timer(self.server_check_timer)
+            self.server_check_timer = None
+
+        if self.explore_timer is not None:
+            self.explore_timer.cancel()
+            self.destroy_timer(self.explore_timer)
+            self.explore_timer = None
+
+        # 구독 해제
+        if self.map_sub is not None:
+            self.destroy_subscription(self.map_sub)
+            self.map_sub = None
+        if self.thermal_sub is not None:
+            self.destroy_subscription(self.thermal_sub)
+            self.thermal_sub = None
+        if self.peers_sub is not None:
+            self.destroy_subscription(self.peers_sub)
+            self.peers_sub = None
+
+        # 발행자 해제
+        if self.target_pub is not None:
+            self.destroy_publisher(self.target_pub)
+            self.target_pub = None
+        if self.status_pub is not None:
+            self.destroy_publisher(self.status_pub)
+            self.status_pub = None
+        if self.frontier_viz_pub is not None:
+            self.destroy_publisher(self.frontier_viz_pub)
+            self.frontier_viz_pub = None
+        if self.frontier_count_pub is not None:
+            self.destroy_publisher(self.frontier_count_pub)
+            self.frontier_count_pub = None
+        if self.nav_error_pub is not None:
+            self.destroy_publisher(self.nav_error_pub)
+            self.nav_error_pub = None
+
+        # 서비스 해제
+        if self.resume_srv is not None:
+            self.destroy_service(self.resume_srv)
+            self.resume_srv = None
+
+        # ActionClient 해제 — on_deactivate에서 정리
+        if self.nav_client is not None:
+            self.nav_client.destroy()
+            self.nav_client = None
+
+        # TF2 해제 — on_deactivate에서 정리
+        if self.tf_listener is not None:
+            self.tf_listener = None
+        if self.tf_buffer is not None:
+            self.tf_buffer = None
+
+        self.nav_server_ready = False
+        self.navigating = False
+
+        self.get_logger().info('FrontierExplorer deactivated')
+        return TransitionCallbackReturn.SUCCESS
+
+    def on_cleanup(self, state: State) -> TransitionCallbackReturn:
+        """내부 상태 리셋 → unconfigured로 복귀."""
+        self.current_map = None
+        self.blacklisted = None
+        self.other_targets = {}
+        self.current_goal = None
+        self.navigating = False
+        self.paused = False
+        self.exploration_complete = False
+        self.nav_goal_handle = None
+        self.no_frontier_count = 0
+        self.nav_server_ready = False
+        self._nav_lock = None
+        self._goal_cancelled = False
+        self.nav_error_count = 0
+        self._cb_group = None
+        self.get_logger().info('FrontierExplorer cleaned up')
+        return TransitionCallbackReturn.SUCCESS
+
+    def on_shutdown(self, state: State) -> TransitionCallbackReturn:
+        """종료 시 정리."""
+        self.get_logger().info('FrontierExplorer shutting down')
+        return TransitionCallbackReturn.SUCCESS
 
     # ─────────────────── Callbacks ───────────────────
 
@@ -171,7 +335,10 @@ class FrontierExplorer(Node):
         self.current_map = msg
 
     def thermal_callback(self, msg: ThermalDetection):
-        """high/critical 열화상 감지 시 탐색 일시정지."""
+        """high/critical 열화상 감지 시 탐색 일시정지 + keepout zone.
+
+        Nav 전문가 권고: 화점 좌표를 블랙리스트에 추가 → 재탐색 방지.
+        """
         if msg.severity in ('high', 'critical') and not self.paused:
             self.paused = True
             temp_c = msg.max_temperature_kelvin - 273.15
@@ -187,6 +354,13 @@ class FrontierExplorer(Node):
             if handle_to_cancel is not None:
                 handle_to_cancel.cancel_goal_async()
             self.publish_status('paused_thermal')
+
+            # Keepout zone: 화점 좌표를 블랙리스트에 추가 (Nav 전문가 권고)
+            if hasattr(msg, 'centroid_image') and self.current_goal is not None:
+                # 현재 목표 근처 화점 → 해당 목표 영구 블랙리스트
+                self.blacklisted.append(self.current_goal)
+                self.get_logger().info(
+                    f'Keepout: blacklisted frontier near hotspot')
 
     def peer_target_callback(self, msg: PoseStamped):
         """다른 로봇의 탐색 대상 수신 (자기 자신 필터링)."""
@@ -499,23 +673,26 @@ def main(args=None):
     rclpy.init(args=args)
     node = FrontierExplorer()
 
+    # LifecycleNode 단독 실행 시 수동으로 configure → activate 전환
+    node.trigger_configure()
+    node.trigger_activate()
+
     from rclpy.executors import MultiThreadedExecutor
     executor = MultiThreadedExecutor()
     executor.add_node(node)
 
     try:
         executor.spin()
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, rclpy.executors.ExternalShutdownException):
         pass
     finally:
-        # 진행 중인 Nav2 goal 취소 (graceful shutdown)
-        with node._nav_lock:
-            handle = node.nav_goal_handle
-        if handle is not None:
-            node.get_logger().info('Cancelling active Nav2 goal...')
-            handle.cancel_goal_async()
+        node.trigger_deactivate()
+        node.trigger_cleanup()
         node.destroy_node()
-        rclpy.shutdown()
+        try:
+            rclpy.shutdown()
+        except Exception:
+            pass
 
 
 if __name__ == '__main__':

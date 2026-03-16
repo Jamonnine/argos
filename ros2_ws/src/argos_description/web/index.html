@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net ws://localhost:* ws://127.0.0.1:* ws://172.19.77.178:*">
+<meta http-equiv="X-Frame-Options" content="DENY">
+<meta http-equiv="X-Content-Type-Options" content="nosniff">
 <title>ARGOS Mission Control</title>
 <script src="https://cdn.jsdelivr.net/npm/roslib@1/build/roslib.min.js"></script>
 <style>
@@ -52,9 +55,35 @@
 
   .sidebar { grid-row: 1 / 3; display: flex; flex-direction: column; gap: 6px; }
   .mission-info .field { margin-bottom: 8px; }
-  .mission-info .label { font-size: 11px; color: #888; }
+  .mission-info .label { font-size: 13px; color: #888; }
   .mission-info .value { font-size: 16px; font-weight: 600; }
   .mission-info .stage { font-size: 20px; }
+
+  /* UX 전문가 권고: 반응형 태블릿 대응 */
+  @media (max-width: 1024px) {
+    .grid { grid-template-columns: 220px 1fr; }
+    .panel h2 { font-size: 12px; }
+  }
+  @media (max-width: 768px) {
+    .grid { grid-template-columns: 1fr; grid-template-rows: auto 1fr auto; }
+    .sidebar { grid-row: auto; flex-direction: row; flex-wrap: wrap; }
+    .sidebar .panel { min-width: 200px; flex: 1; }
+  }
+
+  /* 키보드 포커스 스타일 */
+  button:focus-visible, [tabindex]:focus-visible {
+    outline: 3px solid var(--blue);
+    outline-offset: 2px;
+  }
+
+  /* 색맹 접근성: 상태 배지에 심볼 추가 (색상만 의존 금지) */
+  .state-badge::before { margin-right: 4px; }
+  .state-idle::before { content: '○'; }
+  .state-exploring::before { content: '◎'; }
+  .state-mission::before { content: '●'; }
+  .state-returning::before { content: '◁'; }
+  .state-error::before { content: '✗'; }
+  .state-comm-lost::before { content: '✗✗'; }
 
   .stage-init { color: #888; } .stage-exploring { color: var(--blue); }
   .stage-fire { color: var(--highlight); } .stage-returning { color: var(--orange); }
@@ -99,7 +128,7 @@
     border-radius: 6px; display: block; cursor: crosshair;
   }
 
-  .robot-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .robot-table { width: 100%; border-collapse: collapse; font-size: 14px; }
   .robot-table th {
     text-align: left; padding: 6px 8px; border-bottom: 1px solid #333;
     color: #888; font-weight: 500;
@@ -232,8 +261,9 @@
 <header>
   <h1>ARGOS Mission Control</h1>
   <div class="header-right">
-    <button class="hdr-btn" id="btn-help" onclick="toggleHelp()" title="Keyboard Shortcuts [?]">?</button>
-    <button class="hdr-btn" id="btn-mute" onclick="toggleMute()" title="Toggle Sound [M]">SND</button>
+    <button class="btn-estop" id="btn-estop-header" onclick="callServiceBtn(this,'/orchestrator/emergency_stop')" tabindex="1" title="Emergency Stop [E]" style="padding:6px 16px;font-size:14px;font-weight:700;min-width:44px;min-height:44px">E-STOP</button>
+    <button class="hdr-btn" id="btn-help" onclick="toggleHelp()" tabindex="2" title="Keyboard Shortcuts [?]">?</button>
+    <button class="hdr-btn" id="btn-mute" onclick="toggleMute()" tabindex="3" title="Toggle Sound [M]">SND</button>
     <span id="conn-status">Disconnected</span><span id="reconnect-count"></span>
   </div>
 </header>
@@ -248,13 +278,14 @@
       <div class="field"><div class="label">Robots (Active / Total)</div><div class="value" id="robot-count">0 / 0</div></div>
       <div class="field"><div class="label">Comm Lost</div><div class="value" id="comm-lost" style="color:var(--orange)">0</div></div>
       <div class="field"><div class="label">Fires</div><div class="value" id="fire-count" style="color:var(--highlight)">0</div></div>
-      <div class="field"><div class="label">Primary Responder</div><div class="value" id="primary-responder" style="font-size:14px">-</div></div>
+      <div class="field"><div class="label">Primary Responder</div><div class="value" id="primary-responder" style="font-size:20px;font-weight:700;color:var(--highlight)">-</div></div>
       <div class="field"><div class="label">Stage Timeline</div><div class="stage-timeline" id="stage-timeline"></div></div>
     </div>
 
     <div class="panel">
       <h2>Controls</h2>
       <div class="controls">
+        <button style="background:#2563eb;color:#fff;font-weight:700;font-size:15px;padding:10px;min-height:44px" id="btn-scenario" onclick="startFireScenario()">START SCENARIO [S]</button>
         <button class="btn-estop" id="btn-estop" onclick="callServiceBtn(this,'/orchestrator/emergency_stop')">EMERGENCY STOP [E]</button>
         <button class="btn-resume" id="btn-resume" onclick="callServiceBtn(this,'/orchestrator/resume')">Resume [R]</button>
         <button class="btn-takeoff" onclick="callServiceBtn(this,'/drone1/drone/takeoff')">Drone Takeoff [T]</button>
@@ -270,6 +301,16 @@
     <div class="panel">
       <h2>Fire Alerts</h2>
       <div class="fire-log" id="fire-log"><div style="color:#666;font-size:12px">No alerts</div></div>
+    </div>
+    <div class="panel" id="sensing-panel">
+      <h2>Environment Sensors</h2>
+      <div id="sensing-data" style="font-size:13px;line-height:1.8">
+        <div id="gas-row">Gas: <span style="color:#666">—</span></div>
+        <div id="victim-row">Victims: <span style="color:#666">0</span></div>
+        <div id="structural-row">Structure: <span style="color:var(--green)">SAFE</span></div>
+        <div id="audio-row">Audio: <span style="color:#666">—</span></div>
+        <div id="network-row" style="margin-top:6px;padding-top:6px;border-top:1px solid #333">Network: <span style="color:#666">—</span></div>
+      </div>
     </div>
   </div>
 
@@ -654,6 +695,95 @@ function subscribe() {
     triggerShake(msg.severity === 'critical' ? 8 : 4);
   });
   activeSubs.push(fT);
+
+  // ── 8중 센싱 토픽 구독 ──
+  subscribeSensing('argos1');
+  subscribeSensing('argos2');
+}
+
+// 센싱 데이터 상태
+const sensingData = { gas: null, victims: 0, structural: 'safe', audio: null };
+
+function subscribeSensing(robotId) {
+  // 가스 센서
+  const gT = new ROSLIB.Topic({ ros, name: `/${robotId}/gas/reading`, messageType: 'argos_interfaces/GasReading' });
+  gT.subscribe(msg => {
+    sensingData.gas = msg;
+    updateSensingPanel();
+    if (msg.danger_level === 'critical') {
+      showFlash(`GAS CRITICAL — CO:${msg.co_ppm.toFixed(0)}ppm`, '#ff0000', 3000);
+      triggerShake(6); playSound('battery');
+    }
+  });
+  activeSubs.push(gT);
+
+  // 피해자 감지
+  const vT = new ROSLIB.Topic({ ros, name: `/${robotId}/victim/detections`, messageType: 'argos_interfaces/VictimDetection' });
+  vT.subscribe(msg => {
+    sensingData.victims++;
+    updateSensingPanel();
+    const loc = msg.location && msg.location.point;
+    const gr = loc ? gridRef(loc.x, loc.y) : '';
+    showFlash(`VICTIM DETECTED  ${gr}  Priority:${msg.rescue_priority}`, '#ff6b6b', 3000);
+    playSound('fire');
+  });
+  activeSubs.push(vT);
+
+  // 구조물 경고
+  const stT = new ROSLIB.Topic({ ros, name: `/${robotId}/structural/alerts`, messageType: 'argos_interfaces/StructuralAlert' });
+  stT.subscribe(msg => {
+    sensingData.structural = msg.severity;
+    updateSensingPanel();
+    if (msg.severity === 'critical' || msg.severity === 'danger') {
+      showFlash(`STRUCTURAL ${msg.severity.toUpperCase()}: ${msg.alert_type}`, '#ff9f43', 2500);
+      triggerShake(4);
+    }
+  });
+  activeSubs.push(stT);
+
+  // 음향 이벤트
+  const aT = new ROSLIB.Topic({ ros, name: `/${robotId}/audio/events`, messageType: 'argos_interfaces/AudioEvent' });
+  aT.subscribe(msg => {
+    sensingData.audio = msg;
+    updateSensingPanel();
+    if (msg.immediate_response_needed) {
+      const typeLabel = { explosion:'EXPLOSION', gas_leak:'GAS LEAK', cry_for_help:'CRY FOR HELP', collapse:'COLLAPSE' };
+      showFlash(`AUDIO: ${typeLabel[msg.event_type] || msg.event_type}`, '#e94560', 2500);
+      playSound('fire');
+    }
+  });
+  activeSubs.push(aT);
+}
+
+function updateSensingPanel() {
+  const g = sensingData.gas;
+  // 가스
+  const gasEl = document.getElementById('gas-row');
+  if (g) {
+    const dlc = { safe:'var(--green)', caution:'var(--orange)', danger:'var(--highlight)', critical:'#ff0000' };
+    const dc = dlc[g.danger_level] || '#666';
+    gasEl.innerHTML = `Gas: <span style="color:${dc};font-weight:bold">${g.danger_level.toUpperCase()}</span> ` +
+      `CO:<b>${g.co_ppm.toFixed(0)}</b>ppm O2:<b>${g.o2_percent.toFixed(1)}</b>% LEL:<b>${g.lel_percent.toFixed(0)}</b>%` +
+      (g.evacuate_recommended ? ' <span style="color:#ff0000;font-weight:bold">⚠ EVACUATE</span>' : '');
+  }
+
+  // 피해자
+  document.getElementById('victim-row').innerHTML =
+    `Victims: <span style="color:${sensingData.victims > 0 ? 'var(--highlight)' : '#666'};font-weight:bold">${sensingData.victims}</span>` +
+    (sensingData.victims > 0 ? ' <span style="color:var(--highlight)">RESCUE NEEDED</span>' : '');
+
+  // 구조물
+  const stEl = document.getElementById('structural-row');
+  const stc = { safe:'var(--green)', warning:'var(--orange)', danger:'var(--highlight)', critical:'#ff0000' };
+  stEl.innerHTML = `Structure: <span style="color:${stc[sensingData.structural] || '#666'};font-weight:bold">${sensingData.structural.toUpperCase()}</span>`;
+
+  // 음향
+  const a = sensingData.audio;
+  const audioEl = document.getElementById('audio-row');
+  if (a) {
+    const ac = a.immediate_response_needed ? 'var(--highlight)' : 'var(--orange)';
+    audioEl.innerHTML = `Audio: <span style="color:${ac};font-weight:bold">${a.event_type}</span> ${a.intensity_db.toFixed(0)}dB conf:${a.confidence.toFixed(1)}`;
+  }
 }
 
 function subscribeDrone(id) {
@@ -676,6 +806,66 @@ function callServiceBtn(btn, name) {
     res => { btn.textContent = res.success ? 'OK' : 'Failed'; setTimeout(() => { btn.textContent = orig; btn.disabled = false; btn.classList.remove('active'); }, 1500); },
     () => { btn.textContent = 'Error'; setTimeout(() => { btn.textContent = orig; btn.disabled = false; btn.classList.remove('active'); }, 1500); }
   );
+}
+
+// ═══════════════════════════════════════════════
+//  시나리오 시작 (민발님 버튼 클릭 시)
+// ═══════════════════════════════════════════════
+let scenarioTimers = [];
+function startFireScenario() {
+  initAudio();
+  const btn = document.getElementById('btn-scenario');
+
+  // 기존 시나리오 전부 취소 (병렬 방지)
+  scenarioTimers.forEach(t => clearTimeout(t));
+  scenarioTimers = [];
+
+  // 오케스트레이터 리셋 (EXPLORING으로 완전 초기화)
+  const resetSrv = new ROSLIB.Service({ ros, name: '/orchestrator/reset', serviceType: 'std_srvs/Trigger' });
+  resetSrv.callService(new ROSLIB.ServiceRequest({}), () => {}, () => {});
+
+  btn.disabled = true;
+  showFlash('SCENARIO RESET & START', '#2563eb', 1500);
+  btn.textContent = 'Phase 1: EXPLORING...';
+
+  // Phase 2: 3초 후 화재 발생
+  scenarioTimers.push(setTimeout(() => {
+    btn.textContent = 'Phase 2: FIRE!';
+    showFlash('FIRE DETECTED!', '#e94560', 2000);
+    playSound('fire'); triggerShake(6);
+    const fireTopic = new ROSLIB.Topic({ ros, name: '/orchestrator/fire_alert', messageType: 'argos_interfaces/FireAlert' });
+    fireTopic.publish(new ROSLIB.Message({
+      header: { stamp: { sec: 0, nanosec: 0 }, frame_id: 'map' },
+      robot_id: 'argos_ugv',
+      location: { header: { stamp: { sec: 0, nanosec: 0 }, frame_id: 'map' }, point: { x: 7.0, y: 6.0, z: 0.0 } },
+      max_temperature_kelvin: 873.15, severity: 'critical', confidence: 0.95, active: true
+    }));
+  }, 3000));
+
+  // Phase 3: 8초 후 긴급 정지
+  scenarioTimers.push(setTimeout(() => {
+    btn.textContent = 'Phase 3: E-STOP';
+    showFlash('EMERGENCY STOP', '#e94560', 1500);
+    playSound('estop'); triggerShake(8);
+    const srv = new ROSLIB.Service({ ros, name: '/orchestrator/emergency_stop', serviceType: 'std_srvs/Trigger' });
+    srv.callService(new ROSLIB.ServiceRequest({}), () => {}, () => {});
+  }, 8000));
+
+  // Phase 4: 12초 후 재개
+  scenarioTimers.push(setTimeout(() => {
+    btn.textContent = 'Phase 4: RESUME';
+    showFlash('RESUMED — RETURNING', '#ff9f43', 1500);
+    const srv = new ROSLIB.Service({ ros, name: '/orchestrator/resume', serviceType: 'std_srvs/Trigger' });
+    srv.callService(new ROSLIB.ServiceRequest({}), () => {}, () => {});
+  }, 12000));
+
+  // Phase 5: 15초 후 완료 → 즉시 버튼 복구
+  scenarioTimers.push(setTimeout(() => {
+    btn.textContent = 'COMPLETE';
+    showFlash('MISSION COMPLETE', '#4ecca3', 1500);
+    playSound('stage');
+    setTimeout(() => { btn.textContent = 'START SCENARIO [S]'; btn.disabled = false; }, 1500);
+  }, 15000));
 }
 
 // ═══════════════════════════════════════════════
@@ -933,8 +1123,17 @@ function drawMinimap(cw, ch, vOx, vOy, vS) {
 
   for (const r of Object.values(robots)) {
     const p = r.pose && r.pose.pose && r.pose.pose.position; if (!p) continue;
-    ctx.fillStyle = r.robot_type==='drone'?'#54a0ff':'#4ecca3'; ctx.beginPath();
+    const isCommLost = (r.state||0) === 5;
+    // UX 전문가 권고: 통신두절 → 회색 + X 마크
+    ctx.fillStyle = isCommLost ? '#666' : (r.robot_type==='drone'?'#54a0ff':'#4ecca3');
+    ctx.beginPath();
     ctx.arc(moX+p.x*ms, moY+(MAP_H-p.y)*ms, 3, 0, Math.PI*2); ctx.fill();
+    if (isCommLost) {
+      ctx.strokeStyle = '#ff0000'; ctx.lineWidth = 1.5;
+      const cx = moX+p.x*ms, cy = moY+(MAP_H-p.y)*ms;
+      ctx.beginPath(); ctx.moveTo(cx-4,cy-4); ctx.lineTo(cx+4,cy+4); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx+4,cy-4); ctx.lineTo(cx-4,cy+4); ctx.stroke();
+    }
   }
 
   if (zoomLevel > 1.05) {
@@ -1237,6 +1436,7 @@ canvas.addEventListener('dblclick', (e) => {
 document.addEventListener('keydown', (e) => {
   if (e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA') return;
   switch(e.key) {
+    case 's': case 'S': document.getElementById('btn-scenario').click(); break;
     case 'e': case 'E': document.getElementById('btn-estop').click(); break;
     case 'r': case 'R': document.getElementById('btn-resume').click(); break;
     case 't': case 'T': document.querySelector('.btn-takeoff').click(); break;

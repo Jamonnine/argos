@@ -53,7 +53,7 @@
         <topic>${topic}</topic>
         <gz_frame_id>${camera_name}_optical_link</gz_frame_id>
         <camera>
-          <horizontal_fov>1.3962634</horizontal_fov>
+          <horizontal_fov>1.7453293</horizontal_fov>  <!-- 100° (HW 전문가 권고: 80°→100°) -->
           <image>
             <width>640</width>
             <height>480</height>

@@ -20,15 +20,16 @@ setup(
         # Scripts 등록 (Python 실행 파일)
         (os.path.join('lib', package_name), glob('scripts/*.py')),
     ],
-    install_requires=['setuptools'],
+    install_requires=['setuptools', 'numpy'],
     zip_safe=True,
     maintainer='jamonnine',
-    maintainer_email='jamonnine@todo.todo',
-    description='TODO: Package description',
-    license='TODO: License declaration',
+    maintainer_email='jamonnine@github.com',
+    description='ARGOS core nodes: orchestrator, 8-sensor suite, frontier explorer, drone controller',
+    license='Apache-2.0',
     extras_require={
         'test': [
             'pytest',
+            'pytest-cov',
         ],
     },
     entry_points={
@@ -47,6 +48,14 @@ setup(
             'robot_status = argos_bringup.robot_status_node:main',
             'drone_controller = argos_bringup.drone_controller_node:main',
             'scenario_runner = argos_bringup.scenario_runner_node:main',
+            'gas_sensor = argos_bringup.gas_sensor_node:main',
+            'victim_detector = argos_bringup.victim_detector_node:main',
+            'structural_monitor = argos_bringup.structural_monitor_node:main',
+            'audio_detector = argos_bringup.audio_detector_node:main',
+            'smoke_effect = argos_bringup.smoke_effect_node:main',
+            'step_detector = argos_bringup.step_detector_node:main',
+            'px4_bridge = argos_bringup.px4_bridge_node:main',
+            'mcp_robot_server = argos_bringup.mcp_robot_server:main',
         ],
     },
 )

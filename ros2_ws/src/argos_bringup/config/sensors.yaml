@@ -1,0 +1,37 @@
+# ARGOS 8중 센싱 파라미터 설정
+# 사용: ros2 launch argos_bringup sensing.launch.py
+
+# === 가스 센서 ===
+gas_sensor:
+  ros__parameters:
+    simulation_mode: true
+    publish_rate: 2.0          # Hz
+    sensor_frame: "gas_sensor_link"
+    gas_decay_rate: 0.3        # 거리 감쇠율 (지수 함수)
+    ambient_co: 0.0            # 대기 CO (ppm)
+    ambient_o2: 20.9           # 대기 O2 (%)
+
+# === 피해자 감지 ===
+victim_detector:
+  ros__parameters:
+    simulation_mode: true
+    detection_interval: 1.0    # 초
+    body_temp_min_k: 305.0     # ~32°C
+    body_temp_max_k: 313.0     # ~40°C
+    model_path: ""             # 실제 모드 시 YOLOv8 가중치 경로
+    victim_positions: []       # 시뮬: [x1,y1, x2,y2, ...]
+
+# === 구조물 모니터링 ===
+structural_monitor:
+  ros__parameters:
+    check_interval: 5.0        # 초
+    displacement_threshold: 0.3 # 미터 (이 이상 변위 시 경고)
+    scan_buffer_size: 10       # 비교용 스캔 버퍼 크기
+    min_change_points: 5       # 최소 변화 포인트 수
+
+# === 음향 감지 ===
+audio_detector:
+  ros__parameters:
+    simulation_mode: true
+    scan_interval: 1.0         # 초
+    sound_sources: []          # 시뮬: [x1,y1,"type1", x2,y2,"type2", ...]

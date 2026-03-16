@@ -29,9 +29,10 @@ def generate_launch_description():
     urdf_file = os.path.join(pkg_dir, 'urdf', 'argos_ugv.urdf.xacro')
     bridge_config = os.path.join(pkg_dir, 'config', 'gz_bridge.yaml')
 
-    # Launch 인자
+    # Launch 인자 — 기본 월드를 indoor_test.sdf로 (시연용)
+    indoor_world = os.path.join(pkg_dir, 'worlds', 'indoor_test.sdf')
     world_arg = DeclareLaunchArgument(
-        'world', default_value='empty.sdf',
+        'world', default_value=indoor_world,
         description='Gazebo world file'
     )
 

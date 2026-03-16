@@ -1,0 +1,12 @@
+build/
+install/
+log/
+__pycache__/
+*.pyc
+.git/
+.github/
+docs/
+learning-log/
+knowledge/
+*.md
+!ros2_ws/src/**/README.md

@@ -36,3 +36,6 @@ uint32 nav_error_count                  # Nav2 네비게이션 실패 횟수
 
 # 능력 (로봇 타입별 다름)
 string[] capabilities                   # ["thermal", "lidar", "depth", "gripper"]
+
+# 통신 진단 (통신 전문가 권고: 패킷 손실 감지)
+uint32 seq_number                       # 발행 시퀀스 번호 (매 발행 +1)
