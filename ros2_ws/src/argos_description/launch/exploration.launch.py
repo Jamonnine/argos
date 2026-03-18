@@ -223,6 +223,9 @@ def exploration_robot_group(robot_config, pkg_dir, urdf_file, nav2_params):
             'exploration_rate': 0.5,
             'robot_name': name,
             'thermal_pause': True,
+            # 멀티로봇 frame_prefix: TF 트리에서 argos1/base_footprint
+            'base_frame': f'{name}/base_footprint',
+            'map_frame': 'map',
         }],
         output='screen',
     )

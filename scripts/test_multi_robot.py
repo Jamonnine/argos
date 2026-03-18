@@ -69,8 +69,15 @@ class MultiRobotVerifier(Node):
         super().__init__('multi_robot_verifier')
 
         # --- QoS 프로파일 ---
-        # odom: BEST_EFFORT (고주파 발행, 손실 허용)
-        best_effort_qos = QoSProfile(
+        # UGV odom: DDC가 RELIABLE+TRANSIENT_LOCAL로 발행
+        ugv_odom_qos = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=10,
+        )
+        # Drone odom: VOLATILE 발행 (MulticopterVelocityControl)
+        drone_odom_qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
             durability=DurabilityPolicy.VOLATILE,
             history=HistoryPolicy.KEEP_LAST,
@@ -109,15 +116,15 @@ class MultiRobotVerifier(Node):
                 Odometry,
                 f'/{robot_id}/odom',
                 lambda msg, rid=robot_id: self._on_odom(rid, msg),
-                best_effort_qos,
+                ugv_odom_qos,
             )
 
-        # Drone odom — z축 이동도 유효
+        # Drone odom — z축 이동도 유효 (VOLATILE QoS)
         self.create_subscription(
             Odometry,
             '/drone1/odom',
             lambda msg: self._on_odom('drone1', msg),
-            best_effort_qos,
+            drone_odom_qos,
         )
 
         # /map 구독 — TRANSIENT_LOCAL QoS 필수
@@ -134,7 +141,7 @@ class MultiRobotVerifier(Node):
                 MissionState,
                 '/orchestrator/mission_state',
                 self._on_mission_state,
-                best_effort_qos,
+                ugv_odom_qos,
             )
 
         # --- 타이머 ---
@@ -210,14 +217,16 @@ class MultiRobotVerifier(Node):
 
     def _check_collision(self) -> None:
         """등록된 모든 로봇 쌍 간 2D 거리 확인 — 0.8m 미만이면 경고."""
-        robot_ids = [rid for rid in ALL_ROBOT_IDS if rid in self._positions]
-        if len(robot_ids) < 2:
+        # 이동 전(원점) 로봇만 있으면 충돌 체크 스킵
+        moved_robots = [rid for rid in ALL_ROBOT_IDS
+                        if rid in self._positions and self._traveled.get(rid, 0) > 0.1]
+        if len(moved_robots) < 2:
             return
 
-        for i in range(len(robot_ids)):
-            for j in range(i + 1, len(robot_ids)):
-                rid_a = robot_ids[i]
-                rid_b = robot_ids[j]
+        for i in range(len(moved_robots)):
+            for j in range(i + 1, len(moved_robots)):
+                rid_a = moved_robots[i]
+                rid_b = moved_robots[j]
                 dist = self._dist2d(
                     self._positions[rid_a],
                     self._positions[rid_b],
