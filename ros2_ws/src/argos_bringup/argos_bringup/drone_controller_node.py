@@ -24,13 +24,16 @@ import threading
 import rclpy
 from rclpy.node import Node
 
-from geometry_msgs.msg import Twist, PoseStamped
+from geometry_msgs.msg import Twist, TwistStamped, PoseStamped
 from nav_msgs.msg import Odometry
 from std_msgs.msg import String
 from std_srvs.srv import Trigger
 
 
 class DroneController(Node):
+    # H3: TODO — LifecycleNode로 전환하여 초기화 순서 보장 권장.
+    #            현재는 exploration.launch.py의 TimerAction(10초) 지연으로 우회 중.
+    #            LifecycleNode 전환 시 launch에서 manage_nodes 또는 LifecycleTransition 사용.
 
     def __init__(self):
         super().__init__('drone_controller')
@@ -50,7 +53,6 @@ class DroneController(Node):
         self.declare_parameter('kd_vertical', 0.1)           # D gain
         self.declare_parameter('kp_yaw', 0.5)                # P gain
         self.declare_parameter('landing_timeout', 30.0)      # D2: 착륙 타임아웃 (초)
-        self.declare_parameter('altitude_tolerance', 0.15)   # 0.3→0.15m (드론 전문가 권고)
         # 배터리 모델 (드론 전문가 권고)
         self.declare_parameter('battery_capacity_mah', 2000.0)
         self.declare_parameter('battery_rtl_percent', 20.0)  # RTL 임계값 (%)
@@ -112,6 +114,7 @@ class DroneController(Node):
         # Failsafe (드론 전문가 권고): 오도메트리 손실 시 자동 착륙
         self._odom_timeout_sec = 3.0      # N초 미수신 시 failsafe
         self._last_odom_time = None
+        self._last_control_time = None    # PID dt 실측용
 
         # --- Subscribers ---
         self.odom_sub = self.create_subscription(
@@ -120,7 +123,7 @@ class DroneController(Node):
             PoseStamped, 'drone/waypoint', self.waypoint_callback, 10)
 
         # --- Publishers ---
-        self.cmd_pub = self.create_publisher(Twist, 'cmd_vel', 10)
+        self.cmd_pub = self.create_publisher(TwistStamped, 'cmd_vel', 10)
         self.state_pub = self.create_publisher(String, 'drone/state', 10)
 
         # --- Services ---
@@ -258,7 +261,7 @@ class DroneController(Node):
                 x, y, _, _ = self.current_pose
                 self.target_waypoint = (x, y, 0.0)
 
-        cmd = Twist()
+        cmd = self._make_cmd()
         x, y, z, yaw = self.current_pose
 
         # 지오펜스 체크 (비행 중에만)
@@ -288,8 +291,16 @@ class DroneController(Node):
         h_dist = math.hypot(dx, dy)
 
         # --- 배터리 시뮬레이션 (비행 중 소비) ---
-        if self.state not in ('grounded',):
+        # 실측 dt 계산 (고정 dt 대신 실제 경과 시간 사용)
+        now_time = self.get_clock().now()
+        if self._last_control_time is not None:
+            dt = (now_time - self._last_control_time).nanoseconds / 1e9
+            dt = max(0.001, min(dt, 0.5))  # 안전 범위: 1ms ~ 500ms
+        else:
             dt = 1.0 / self.get_parameter('control_rate').value
+        self._last_control_time = now_time
+
+        if self.state not in ('grounded',):
             self._battery_remaining_wh -= self._power_consumption * dt / 3600.0
             battery_percent = max(0.0, self._battery_remaining_wh / self._battery_energy_wh * 100.0)
             if battery_percent <= self._battery_rtl_percent and not self._battery_rtl_triggered:
@@ -309,7 +320,7 @@ class DroneController(Node):
         vz = self._clamp(
             self.kp_v * dz + self.ki_v * self._integral_v + self.kd_v * d_error_v,
             -self.max_v_speed, self.max_v_speed)
-        cmd.linear.z = vz
+        cmd.twist.linear.z = vz
 
         # --- 수평 PID 제어 (바디 프레임 변환) ---
         cos_yaw = math.cos(-yaw)
@@ -332,8 +343,8 @@ class DroneController(Node):
         vy = self._clamp(
             self.kp_h * body_dy + self.ki_h * self._integral_h[1] + self.kd_h * d_error_hy,
             -self.max_h_speed, self.max_h_speed)
-        cmd.linear.x = vx
-        cmd.linear.y = vy
+        cmd.twist.linear.x = vx
+        cmd.twist.linear.y = vy
 
         # --- Yaw 제어 (이동 방향으로 기수 정렬) ---
         if h_dist > self.pos_tol:
@@ -344,7 +355,7 @@ class DroneController(Node):
                 yaw_error -= 2.0 * math.pi
             while yaw_error < -math.pi:
                 yaw_error += 2.0 * math.pi
-            cmd.angular.z = self._clamp(
+            cmd.twist.angular.z = self._clamp(
                 self.kp_yaw * yaw_error, -1.0, 1.0)
 
         self.cmd_pub.publish(cmd)
@@ -381,9 +392,11 @@ class DroneController(Node):
             # D2: 착륙 시작 시각 기록
             if self._landing_start_time is None:
                 self._landing_start_time = self.get_clock().now()
-            # 착륙 조건: 고도 0.3m 이하 AND 수직 오차 < 0.4m
+            # 착륙 조건: 고도 0.3m 이하 AND 수직 오차 < 0.4m AND 수직 속도 충분히 작음
             landing_elapsed = (self.get_clock().now() - self._landing_start_time).nanoseconds / 1e9
-            if (z < 0.3 and abs(dz) < 0.4) or landing_elapsed > self.landing_timeout:
+            vz = abs(self.current_pose[2] - z) / max(dt, 0.001) if hasattr(self, '_prev_z') else 0.0
+            self._prev_z = z
+            if (z < 0.3 and abs(dz) < 0.4 and vz < 0.3) or landing_elapsed > self.landing_timeout:
                 if landing_elapsed > self.landing_timeout:
                     self.get_logger().warn(
                         f'Landing timeout ({self.landing_timeout}s) — forced ground')
@@ -391,11 +404,23 @@ class DroneController(Node):
                 self.target_waypoint = None
                 self._landing_start_time = None
                 self.get_logger().info('Landed')
-                self.cmd_pub.publish(Twist())
+                self._publish_stop()
 
         self._publish_state()
 
     # ─────────────────── Helpers ───────────────────
+
+    def _make_cmd(self) -> TwistStamped:
+        """TwistStamped 메시지 생성 (Jazzy 표준)."""
+        cmd = TwistStamped()
+        cmd.header.stamp = self.get_clock().now().to_msg()
+        cmd.header.frame_id = 'base_link'
+        return cmd
+
+    def _publish_stop(self):
+        """정지 명령 발행."""
+        cmd = self._make_cmd()
+        self.cmd_pub.publish(cmd)
 
     @staticmethod
     def _clamp(val, min_val, max_val):
@@ -418,7 +443,7 @@ def main(args=None):
         # 안전 셧다운: 속도 제로 발행 (호버링 모드)
         if node.state != 'grounded':
             node.get_logger().info('Shutdown: sending zero velocity')
-            node.cmd_pub.publish(Twist())
+            node._publish_stop()
         node.destroy_node()
         rclpy.shutdown()
 

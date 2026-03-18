@@ -72,6 +72,9 @@ class PerceptionBridgeNode(Node):
         self._detection_cache: deque = deque(maxlen=cache_size)
 
         # ── Subscriber: 실제 AI 감지 결과 구독 ────────────────────
+        # H4: 이 노드는 /detections를 구독하면서 동시에 발행함 (에코 루프 위험).
+        #     _on_detections에서 detector_name == 'lidar_simulator' 필터로 자기 발행 무시.
+        #     외부 AI 발행자(detector_name != 'lidar_simulator')의 메시지만 캐시에 저장됨.
         self._detection_sub = self.create_subscription(
             DetectionArray,
             '/detections',
@@ -81,6 +84,7 @@ class PerceptionBridgeNode(Node):
         )
 
         # ── Publisher: 감지 결과 발행 (시뮬레이션 모드) ────────────
+        # H4: /detections 에 발행하되, _on_detections에서 'lidar_simulator' 소스만 무시됨
         self._detection_pub = self.create_publisher(DetectionArray, '/detections', 10)
 
         # ── LiDAR 구독 (시뮬레이션: LiDAR → 가짜 감지 결과) ───────

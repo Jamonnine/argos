@@ -44,7 +44,7 @@ from rclpy.duration import Duration
 from rclpy.callback_groups import ReentrantCallbackGroup
 
 from std_srvs.srv import Trigger
-from geometry_msgs.msg import Point, Twist, PoseStamped
+from geometry_msgs.msg import Point, Twist, TwistStamped, PoseStamped
 from argos_interfaces.msg import (
     RobotStatus, FireAlert, MissionState,
     GasReading, VictimDetection, StructuralAlert, AudioEvent,
@@ -126,6 +126,12 @@ class OrchestratorNode(LifecycleNode):
     - on_deactivate: 모든 핸들 destroy → 임무 중단
     - on_cleanup  : 내부 상태 리셋
     - on_shutdown : 로그만
+
+    M1: TODO — 이 클래스는 현재 1000줄 이상으로 SRP를 위반함.
+    향후 리팩토링 시 아래 3개 노드로 분리 권장:
+      - MissionStateMachine: stage 전환, 타이머, 상태 발행
+      - SensorFusion: 8중 센싱 콜백, 위험도 집계
+      - RobotDispatcher: 파견 로직, 로봇 레지스트리, heartbeat
     """
 
     # Heartbeat 타임아웃 (초) — 근거: 로봇 발행 주기 2초 × 5회 미수신 = 10초
@@ -170,6 +176,9 @@ class OrchestratorNode(LifecycleNode):
         self._gas_critical_count = 0
         self._gas_critical_threshold = 2
 
+        # H1: gas 센서 watchdog — 마지막 수신 시간 추적
+        self._last_gas_time = None
+
         # 구독/발행/서비스/타이머 핸들 (on_activate에서 생성, on_deactivate에서 해제)
         self.status_sub = None
         self.fire_sub = None
@@ -177,6 +186,7 @@ class OrchestratorNode(LifecycleNode):
         self.mission_pub = None
         self.stop_srv = None
         self.resume_srv = None
+        self._gas_watchdog_timer = None
         self.state_timer = None
         self.heartbeat_timer = None
 
@@ -214,7 +224,8 @@ class OrchestratorNode(LifecycleNode):
         # 센싱 상태 초기화
         self.gas_danger_level = 'safe'
         self.victims_detected = deque(maxlen=200)
-        self.blocked_areas = []
+        # H7: blocked_areas → deque로 교체 (thread-safety + 자동 용량 제한)
+        self.blocked_areas = deque(maxlen=100)
         self.audio_alerts = deque(maxlen=50)
         self._evacuation_recommended = False
         self._gas_critical_count = 0
@@ -238,6 +249,8 @@ class OrchestratorNode(LifecycleNode):
             durability=DurabilityPolicy.TRANSIENT_LOCAL,
             depth=10,
         )
+        # H9: TODO — robot_status 구독자가 TRANSIENT_LOCAL 사용 시 발행자도 동일 설정 필요
+        #            (현재 VOLATILE 기본값 → late-joining subscriber 초기 상태 수신 못함)
         status_qos = QoSProfile(
             reliability=ReliabilityPolicy.RELIABLE,
             depth=10,
@@ -305,6 +318,9 @@ class OrchestratorNode(LifecycleNode):
             self.PUBLISH_RATE, self.publish_mission_state)
         self.heartbeat_timer = self.create_timer(
             self.HEARTBEAT_TIMEOUT / 2, self.check_heartbeats)
+        # H1: gas sensor watchdog — 5초 이상 수신 없으면 경고
+        self._last_gas_time = self.get_clock().now()
+        self._gas_watchdog_timer = self.create_timer(5.0, self._check_gas_watchdog)
 
         self.get_logger().info(
             f'Orchestrator activated — {len(expected)} robots: {expected}')
@@ -324,6 +340,11 @@ class OrchestratorNode(LifecycleNode):
             self.heartbeat_timer.cancel()
             self.destroy_timer(self.heartbeat_timer)
             self.heartbeat_timer = None
+        # H1: gas watchdog 타이머 해제
+        if self._gas_watchdog_timer is not None:
+            self._gas_watchdog_timer.cancel()
+            self.destroy_timer(self._gas_watchdog_timer)
+            self._gas_watchdog_timer = None
 
         # 서비스 해제
         if self.stop_srv is not None:
@@ -507,9 +528,11 @@ class OrchestratorNode(LifecycleNode):
         for rid in robot_ids:
             if rid not in self.robot_stop_pubs:
                 self.robot_stop_pubs[rid] = self.create_publisher(
-                    Twist, f'/{rid}/cmd_vel', 10)
+                    TwistStamped, f'/{rid}/cmd_vel', 10)
             for _ in range(ESTOP_REPEAT):
-                self.robot_stop_pubs[rid].publish(Twist())
+                stop_cmd = TwistStamped()
+                stop_cmd.header.stamp = self.get_clock().now().to_msg()
+                self.robot_stop_pubs[rid].publish(stop_cmd)
             success_count += 1
             self.get_logger().error(f'E-STOP issued to {rid} (x{ESTOP_REPEAT})')
 
@@ -548,6 +571,16 @@ class OrchestratorNode(LifecycleNode):
 
     # ─────────────────── 8중 센싱 Callbacks ───────────────────
 
+    def _check_gas_watchdog(self):
+        """H1: gas 센서 watchdog — 5초 이상 수신 없으면 경고."""
+        if self._last_gas_time is None:
+            return
+        elapsed = (self.get_clock().now() - self._last_gas_time).nanoseconds / 1e9
+        if elapsed > 5.0:
+            self.get_logger().warn(
+                f'GAS SENSOR TIMEOUT: {elapsed:.1f}초 동안 수신 없음 — 센서 연결 확인 필요',
+                throttle_duration_sec=10.0)
+
     def gas_callback(self, msg: GasReading):
         """가스 위험도 기반 임무 재할당 (입력 검증 포함)."""
         rid = msg.robot_id
@@ -556,6 +589,8 @@ class OrchestratorNode(LifecycleNode):
         if not validate_danger_level(msg.danger_level):
             self.get_logger().warn(f'Invalid gas danger_level: {msg.danger_level}')
             return
+        # H1: gas 수신 시각 갱신
+        self._last_gas_time = self.get_clock().now()
 
         if msg.evacuate_recommended and msg.danger_level == 'critical':
             # Temporal smoothing: N회 연속 critical이어야 실제 판정 (오탐 방지)
@@ -579,7 +614,8 @@ class OrchestratorNode(LifecycleNode):
                     f'GAS CRITICAL from {rid} ({self._gas_critical_count}/{self._gas_critical_threshold}) '
                     f'— 확인 대기 중')
         elif msg.danger_level == 'danger':
-            self._gas_critical_count = 0  # critical 연속 카운트 리셋
+            # H6: danger는 완전 리셋이 아닌 점진적 감소 — 짧은 복귀 후 재상승 방지
+            self._gas_critical_count = max(0, self._gas_critical_count - 1)
             self.gas_danger_level = 'danger'
             self.get_logger().warn(
                 f'GAS DANGER from {rid}: {msg.hazard_types} — 감시 강화')
@@ -646,6 +682,15 @@ class OrchestratorNode(LifecycleNode):
         if msg.severity == 'critical':
             self.get_logger().error(
                 f'CRITICAL STRUCTURAL from {rid} — 해당 로봇 즉시 철수 지휘')
+            # H5: 구조물 critical 시 해당 로봇 즉시 정지 (log only → 실제 정지 명령)
+            if rid not in self.robot_stop_pubs:
+                self.robot_stop_pubs[rid] = self.create_publisher(
+                    TwistStamped, f'/{rid}/cmd_vel', 10)
+            stop_cmd = TwistStamped()
+            stop_cmd.header.stamp = self.get_clock().now().to_msg()
+            self.robot_stop_pubs[rid].publish(stop_cmd)
+            self.get_logger().error(
+                f'EVACUATION: {rid} stopped due to structural critical')
 
     def audio_callback(self, msg: AudioEvent):
         """음향 이벤트 → 피해자 탐색 / 폭발 경고."""
@@ -933,8 +978,10 @@ class OrchestratorNode(LifecycleNode):
                 f'BATTERY CRITICAL: {rid} at {r.battery:.0f}% — auto-return')
             if rid not in self.robot_stop_pubs:
                 self.robot_stop_pubs[rid] = self.create_publisher(
-                    Twist, f'/{rid}/cmd_vel', 10)
-            self.robot_stop_pubs[rid].publish(Twist())
+                    TwistStamped, f'/{rid}/cmd_vel', 10)
+            stop_cmd = TwistStamped()
+            stop_cmd.header.stamp = self.get_clock().now().to_msg()
+            self.robot_stop_pubs[rid].publish(stop_cmd)
         elif r.battery <= self.BATTERY_WARNING and not r.battery_warned:
             r.battery_warned = True
             self.get_logger().warn(

@@ -26,7 +26,7 @@ from launch.actions import (
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PythonExpression
-from launch_ros.actions import Node, PushROSNamespace, SetParameter
+from launch_ros.actions import LifecycleNode, Node, PushROSNamespace, SetParameter
 from launch_ros.descriptions import ParameterFile
 from nav2_common.launch import ReplaceString, RewrittenYaml
 
@@ -43,7 +43,9 @@ def generate_launch_description():
     autostart = LaunchConfiguration('autostart')
 
     # --- docking_server 제외한 lifecycle 노드 목록 ---
+    # slam_toolbox를 맨 앞에 배치: SLAM이 먼저 활성화되어야 map TF 발행 시작
     lifecycle_nodes = [
+        'slam_toolbox',
         'controller_server',
         'smoother_server',
         'planner_server',
@@ -111,22 +113,23 @@ def generate_launch_description():
                 condition=IfCondition(use_namespace),
                 namespace=namespace,
             ),
-            # SLAM (nav2_bringup의 slam_launch.py 재사용)
-            # 핵심: params_file_replaced 사용 — <robot_namespace>/ 치환된 버전
-            # 원본 params_file을 전달하면 slam_toolbox가 "<robot_namespace>/base_footprint"을
-            # 문자 그대로 프레임 이름으로 사용하여 TF lookup 100% 실패함
-            IncludeLaunchDescription(
-                PythonLaunchDescriptionSource(
-                    os.path.join(nav2_launch_dir, 'slam_launch.py')
-                ),
+            # SLAM — slam_launch.py 우회, 직접 slam_toolbox 생성
+            # 이유: slam_launch.py의 HasNodeParams가 ReplaceString/RewrittenYaml
+            #   결과물에서 slam_toolbox 섹션을 탐지 못함 → 기본 설정 폴백 →
+            #   scan_topic이 /scan으로 되어 lidar_link 프레임 수신 → SLAM 실패.
+            # 해결: configured_params(RewrittenYaml+ParameterFile)로 직접 전달.
+            LifecycleNode(
                 condition=IfCondition(slam),
-                launch_arguments={
-                    'namespace': namespace,
-                    'use_sim_time': use_sim_time,
-                    'autostart': autostart,
-                    'use_respawn': 'False',
-                    'params_file': params_file_replaced,
-                }.items(),
+                package='slam_toolbox',
+                executable='sync_slam_toolbox_node',
+                name='slam_toolbox',
+                namespace='',
+                output='screen',
+                parameters=[configured_params,
+                            {'use_sim_time': use_sim_time,
+                             'use_lifecycle_manager': True}],
+                remappings=[('/scan', 'scan'), ('/tf', 'tf'), ('/tf_static', 'tf_static'),
+                            ('/map', 'map')],
             ),
             # Nav2 Navigation Nodes (docking 제외)
             SetParameter('use_sim_time', use_sim_time),

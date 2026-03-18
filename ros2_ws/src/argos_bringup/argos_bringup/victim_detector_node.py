@@ -8,7 +8,6 @@
 실제 모드: YOLOv8 열화상 인체 감지 모델 (FLIR ADAS 학습).
 """
 import math
-import time as time_module
 import rclpy
 from rclpy.node import Node
 
@@ -19,7 +18,11 @@ from sensor_msgs.msg import Image
 
 
 class VictimDetectorNode(Node):
-    """열화상/RGB 기반 피해자 감지 + 구조 우선순위 판정."""
+    """열화상/RGB 기반 피해자 감지 + 구조 우선순위 판정.
+
+    H10: TODO — LifecycleNode로 전환하여 초기화 순서 보장 권장.
+                현재는 sensing.launch.py 기동 순서에 의존하고 있음.
+    """
 
     def __init__(self):
         super().__init__('victim_detector')
@@ -137,7 +140,8 @@ class VictimDetectorNode(Node):
 
             if dist <= detection_range:
                 victim_id = f'victim_{i}'
-                now = time_module.time()
+                # M4: ROS 클록 사용 (시뮬레이션 시각 동기화, time.time() 제거)
+                now = self.get_clock().now().nanoseconds / 1e9
 
                 # 쿨다운 이내 재감지 방지
                 if victim_id in self.detected_victims:
@@ -174,7 +178,8 @@ class VictimDetectorNode(Node):
 
     def _cleanup_old_detections(self):
         """메모리 누수 방지: 오래된 감지 이력 삭제."""
-        now = time_module.time()
+        # M4: ROS 클록 사용 (시뮬레이션 시각 동기화)
+        now = self.get_clock().now().nanoseconds / 1e9
         expired = [vid for vid, t in self.detected_victims.items()
                    if now - t > self._stale_threshold_sec]
         for vid in expired:

@@ -36,7 +36,7 @@ ROBOTS = [
 
 # --- 드론 설정 ---
 DRONES = [
-    {'name': 'drone1', 'x': 5.0, 'y': 0.0, 'z': 0.2},
+    {'name': 'drone1', 'x': 5.0, 'y': 4.0, 'z': 0.2},  # 방 C 상단 (남쪽벽 y=0 회피)
 ]
 
 
@@ -148,24 +148,46 @@ def exploration_robot_group(robot_config, pkg_dir, urdf_file, nav2_params):
         output='screen',
     )
 
-    # --- Nav2 + SLAM (per robot, 25초 지연: 멀티로봇 Gazebo + 컨트롤러 초기화 대기) ---
-    nav2_bringup = TimerAction(
-        period=25.0,
-        actions=[
-            IncludeLaunchDescription(
-                PythonLaunchDescriptionSource(
-                    os.path.join(pkg_dir, 'launch', 'argos_nav2_bringup.launch.py')
-                ),
-                launch_arguments={
-                    'use_sim_time': 'True',
-                    'slam': 'True',
-                    'params_file': nav2_params,
-                    'autostart': 'True',
-                    'namespace': name,
-                    'use_namespace': 'True',
-                }.items(),
-            ),
-        ],
+    # --- scan_frame_relay (per robot) — lidar_link TF 조회 실패 우회 ---
+    scan_relay = Node(
+        package='argos_bringup',
+        executable='scan_frame_relay',
+        name='scan_frame_relay',
+        namespace=name,
+        parameters=[{
+            'use_sim_time': True,
+            'input_topic': 'scan',
+            'output_topic': 'scan_base',
+            'target_frame': 'base_footprint',  # scan_frame_relay가 namespace 자동 프리픽스
+        }],
+        output='screen',
+    )
+
+    # --- Nav2 + SLAM (per robot) ---
+    # DDC 완료 이벤트에 체이닝 + 45초 추가 대기 (odom TF 축적).
+    # 이전: TimerAction(25.0) — wall time 기반이라 RTF 0.28x에서 DDC보다 먼저 시작됨.
+    # 수정: OnProcessExit(ddc_spawner) → scan_relay 즉시 + 45초 후 Nav2 시작.
+    nav2_include = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(pkg_dir, 'launch', 'argos_nav2_bringup.launch.py')
+        ),
+        launch_arguments={
+            'use_sim_time': 'True',
+            'slam': 'True',
+            'params_file': nav2_params,
+            'autostart': 'True',
+            'namespace': name,
+            'use_namespace': 'True',
+        }.items(),
+    )
+    nav2_after_ddc = RegisterEventHandler(
+        event_handler=OnProcessExit(
+            target_action=ddc_spawner,
+            on_exit=[
+                scan_relay,
+                TimerAction(period=45.0, actions=[nav2_include]),
+            ],
+        )
     )
 
     # --- Hotspot Detector ---
@@ -184,27 +206,33 @@ def exploration_robot_group(robot_config, pkg_dir, urdf_file, nav2_params):
         output='screen',
     )
 
-    # --- Frontier Explorer (40초 지연: Nav2 완전 활성화 대기) ---
-    frontier_explorer = TimerAction(
-        period=40.0,
-        actions=[
-            Node(
-                package='argos_bringup',
-                executable='frontier_explorer',
-                name='frontier_explorer',
-                namespace=name,
-                parameters=[{
-                    'use_sim_time': True,
-                    'min_frontier_size': 8,
-                    'exclusion_radius': 2.0,
-                    'blacklist_radius': 1.0,
-                    'exploration_rate': 0.5,
-                    'robot_name': name,
-                    'thermal_pause': True,
-                }],
-                output='screen',
-            ),
-        ],
+    # --- Frontier Explorer ---
+    # Nav2 완전 활성화 대기: DDC 완료 + 45초(Nav2 시작) + 45초(Nav2 lifecycle 활성화)
+    # = DDC 완료 + 90초. 별도 TimerAction(90.0) from launch start 대신
+    # DDC 이벤트 체이닝 후 90초 대기로 정확한 순서 보장.
+    frontier_node = Node(
+        package='argos_bringup',
+        executable='frontier_explorer',
+        name='frontier_explorer',
+        namespace=name,
+        parameters=[{
+            'use_sim_time': True,
+            'min_frontier_size': 3,
+            'exclusion_radius': 2.0,
+            'blacklist_radius': 1.0,
+            'exploration_rate': 0.5,
+            'robot_name': name,
+            'thermal_pause': True,
+        }],
+        output='screen',
+    )
+    frontier_after_ddc = RegisterEventHandler(
+        event_handler=OnProcessExit(
+            target_action=ddc_spawner,
+            on_exit=[
+                TimerAction(period=90.0, actions=[frontier_node]),
+            ],
+        )
     )
 
     # --- Robot Status Publisher (오케스트레이터에 상태 보고) ---
@@ -228,9 +256,9 @@ def exploration_robot_group(robot_config, pkg_dir, urdf_file, nav2_params):
         jsb_after_spawn,
         ddc_after_jsb,
         gz_bridge,
-        nav2_bringup,
+        nav2_after_ddc,
         hotspot_detector,
-        frontier_explorer,
+        frontier_after_ddc,
         robot_status_pub,
     ]
 
@@ -305,6 +333,8 @@ def drone_group(drone_config, pkg_dir):
     )
 
     # --- Drone Controller (10초 지연: Gazebo 스폰 대기) ---
+    # indoor_test.sdf 기준 월드 크기: x 0~10m, y 0~8m, 천장 높이 2.5m
+    # geofence_z_max = 2.2m (천장 충돌 회피 0.3m 여유)
     drone_controller = TimerAction(
         period=10.0,
         actions=[
@@ -315,9 +345,14 @@ def drone_group(drone_config, pkg_dir):
                 namespace=name,
                 parameters=[{
                     'use_sim_time': True,
-                    'cruise_altitude': 8.0,
+                    'cruise_altitude': 2.0,      # 실내 천장 고려 (2.5m - 0.5m 여유)
                     'max_horizontal_speed': 2.0,
                     'max_vertical_speed': 1.0,
+                    'geofence_x_min': 0.5,
+                    'geofence_x_max': 9.5,
+                    'geofence_y_min': 0.5,
+                    'geofence_y_max': 7.5,
+                    'geofence_z_max': 2.2,       # 천장 2.5m - 0.3m 안전 마진
                 }],
                 output='screen',
             ),
@@ -384,10 +419,16 @@ def generate_launch_description():
         }.items(),
     )
 
-    # --- 오케스트레이터 (중앙 지휘 — 45초 지연: Nav2 + 탐색 초기화 대기) ---
+    # --- 오케스트레이터 (중앙 지휘) ---
+    # 타이밍 근거:
+    #   DDC 완료 → +45s Nav2 시작 → +45s Nav2 lifecycle 활성화 → +90s frontier 시작
+    #   = launch 시작 후 ~135s (DDC 완료 기준). wall time 120s는 여유 있는 하한.
+    #   오케스트레이터는 heartbeat(10s) + Deadline QoS(5s) 기반으로 로봇 등록 대기하므로
+    #   frontier 시작과 동시 기동해도 안전하지만, 45s는 Nav2가 아직 초기화 중일 수 있음.
+    # 수정: 45s → 120s (DDC + Nav2 완전 활성화 충분히 보장)
     all_robot_names = [r['name'] for r in ROBOTS] + [d['name'] for d in DRONES]
     orchestrator = TimerAction(
-        period=45.0,
+        period=120.0,
         actions=[
             Node(
                 package='argos_bringup',
@@ -414,7 +455,8 @@ def generate_launch_description():
     )
 
     # --- 전체 엔티티 조립 ---
-    all_entities = [world_arg, gazebo, clock_bridge]
+    # headless_arg를 LaunchDescription에 등록해야 ros2 launch --headless 인자가 동작함
+    all_entities = [world_arg, headless_arg, gazebo, clock_bridge]
 
     # UGV 스택
     for robot in ROBOTS:

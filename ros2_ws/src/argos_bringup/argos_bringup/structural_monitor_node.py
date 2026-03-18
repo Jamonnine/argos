@@ -8,6 +8,7 @@ LiDAR 포인트클라우드를 시간에 따라 비교하여
       변화가 감지되면 → 구조물 손상 가능성 경고.
 """
 import math
+from collections import deque
 import numpy as np
 import rclpy
 from rclpy.node import Node
@@ -36,8 +37,8 @@ class StructuralMonitorNode(Node):
         self.buffer_size = self.get_parameter('scan_buffer_size').value
         self.min_points = self.get_parameter('min_change_points').value
 
-        # 스캔 버퍼
-        self.scan_buffer = []
+        # M6: scan_buffer → deque로 교체 (thread-safety + 자동 크기 제한)
+        self.scan_buffer = deque(maxlen=self.buffer_size)
         self.robot_position = None
 
         # 구독
@@ -66,9 +67,8 @@ class StructuralMonitorNode(Node):
         ranges = np.array(msg.ranges, dtype=np.float32)
         # inf/nan을 max_range로 대체
         ranges = np.where(np.isfinite(ranges), ranges, msg.range_max)
+        # M6: deque(maxlen=buffer_size)이므로 초과 시 자동으로 왼쪽(오래된 항목) 제거
         self.scan_buffer.append(ranges)
-        if len(self.scan_buffer) > self.buffer_size:
-            self.scan_buffer.pop(0)
 
     def _check_structural(self):
         """버퍼의 첫 스캔과 마지막 스캔을 비교하여 변화 감지."""

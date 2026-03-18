@@ -56,8 +56,9 @@ controller_server:
     controller_plugins: ["FollowPath"]
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
-      required_movement_radius: 0.15
-      movement_time_allowance: 15.0
+      required_movement_radius: 0.10
+      # RTF 0.28x: 15초 sim time = ~54초 wall time. 30초로 상향 → wall ~107초 여유
+      movement_time_allowance: 30.0
     goal_checker:
       stateful: true
       plugin: "nav2_controller::SimpleGoalChecker"
@@ -306,8 +307,10 @@ collision_monitor:
     polygons: ["PolygonStop", "PolygonSlow"]
     PolygonStop:
       type: "polygon"
-      # ARGOS 크기 + 10cm 긴급 정지 여유
-      points: "[[0.45, 0.35], [0.45, -0.35], [-0.45, -0.35], [-0.45, 0.35]]"
+      # ARGOS 크기(0.6×0.4m) + 5cm 긴급 정지 여유
+      # 이전: +15cm(0.45,0.35) → 좁은 복도/벽 근처 과민 정지
+      # 수정: +5cm(0.35,0.25) → 통과 가능 폭 0.5m 확보
+      points: "[[0.35, 0.25], [0.35, -0.25], [-0.35, -0.25], [-0.35, 0.25]]"
       action_type: "stop"
       min_points: 4
       visualize: true
@@ -315,8 +318,8 @@ collision_monitor:
       enabled: true
     PolygonSlow:
       type: "polygon"
-      # ARGOS 크기 + 40cm 감속 여유
-      points: "[[0.75, 0.60], [0.75, -0.60], [-0.75, -0.60], [-0.75, 0.60]]"
+      # ARGOS 크기 + 25cm 감속 여유 (이전: +40cm → 과잉 감속)
+      points: "[[0.55, 0.45], [0.55, -0.45], [-0.55, -0.45], [-0.55, 0.45]]"
       action_type: "slowdown"
       min_points: 4
       slowdown_ratio: 0.5

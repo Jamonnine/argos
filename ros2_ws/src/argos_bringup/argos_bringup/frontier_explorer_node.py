@@ -194,6 +194,9 @@ class FrontierExplorer(LifecycleNode):
                 self.thermal_callback, sensor_qos)
 
         # 멀티로봇: 다른 로봇 탐색 대상 수신
+        # H2: /exploration/targets 구독+발행 에코 루프 위험.
+        #     peer_target_callback에서 msg.header.frame_id == self.robot_name 필터로 차단됨.
+        #     발행 시 frame_id에 robot_name을 설정하므로 자기 메시지는 무시됨.
         self.peers_sub = self.create_subscription(
             PoseStamped, '/exploration/targets',
             self.peer_target_callback, 10)
@@ -399,6 +402,11 @@ class FrontierExplorer(LifecycleNode):
         """주기적 프론티어 탐색 사이클."""
         if self.current_map is None or self.paused or self.exploration_complete:
             return
+
+        # Nav2 서버 준비 전에는 프론티어 계산 스킵 (불필요한 CPU 낭비 방지)
+        if not self.nav_server_ready:
+            return
+
         with self._nav_lock:
             if self.navigating:
                 return
@@ -420,6 +428,11 @@ class FrontierExplorer(LifecycleNode):
         self.no_frontier_count = 0
         target = self.select_best_frontier(frontiers)
         if target is None:
+            # 프론티어는 있으나 모두 exclusion으로 필터됨
+            # → 다른 로봇이 점유한 일시적 상황이므로 카운트하지 않음
+            self.get_logger().debug(
+                'All frontiers excluded by peers — waiting',
+                throttle_duration_sec=5.0)
             return
 
         self.send_nav_goal(target)
@@ -606,12 +619,15 @@ class FrontierExplorer(LifecycleNode):
             t = self.tf_buffer.lookup_transform(
                 self.map_frame, self.base_frame, rclpy.time.Time())
             return (t.transform.translation.x, t.transform.translation.y)
-        except Exception:
+        except Exception as e:
+            # L1: 예외 내용을 debug 레벨로 기록 (throttle로 로그 폭주 방지)
+            self.get_logger().debug(
+                f'TF lookup failed: {e}', throttle_duration_sec=5.0)
             return None
 
     def _is_blacklisted(self, x, y):
         # F4: O(1) numpy 벡터화 (기존 O(n) 순회 대체)
-        if not self.blacklisted:
+        if self.blacklisted is None or not self.blacklisted:
             return False
         bl = np.array(self.blacklisted)
         dists = np.hypot(bl[:, 0] - x, bl[:, 1] - y)

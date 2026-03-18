@@ -78,6 +78,8 @@ class PatrolActionServer(Node):
                 return result
 
             # 이동
+            # M5: TODO — get_clock().sleep_for()는 현재 스레드를 블로킹.
+            #            Nav2 Action Client로 마이그레이션 시 비동기 Future 기반으로 교체 권장.
             self.get_logger().info(f'경유지 {i+1}/{total} 이동 중 ({wp.pose.position.x:.1f}, {wp.pose.position.y:.1f})')
             feedback.current_pose = wp
             feedback.current_waypoint_index = i

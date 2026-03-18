@@ -105,7 +105,7 @@ def generate_launch_description():
         arguments=[
             '-name', 'argos_ugv',
             '-topic', '/robot_description',
-            '-x', '5.0',    # 방 C 중앙
+            '-x', '2.0',    # 방 C 좌측 (table_c 회피: 5.0,2.5)
             '-y', '2.5',
             '-z', '0.3',
         ],
@@ -191,14 +191,43 @@ def generate_launch_description():
     # DDC 완료 후 처리:
     #   1) scan_frame_relay 즉시 기동 (scan 릴레이를 Nav2 기동 전에 준비)
     #   2) 45초 후 Nav2 기동 (RTF 0.28x 기준 odom TF 축적 대기)
-    # RTF 0.28x에서 DDC가 odom TF 첫 발행까지 ~100 wall-seconds.
-    # DDC spawner 완료(~20s) + 45s = ~65s. odom 발행 시작(~125s)까지 60s 여유.
+    #   3) 90초 후 frontier_explorer 기동 (Nav2 lifecycle 완전 활성화 대기)
+    #
+    # 타이밍 계산 (모두 DDC spawner 완료 시점 기준 wall time):
+    #   DDC 완료:            T+0s   (launch 시작 후 ~20s)
+    #   Nav2 기동:           T+45s  (odom TF 축적 대기)
+    #   bt_navigator active: T+75s  (Nav2 lifecycle 활성화 ~30s 소요)
+    #   frontier 시작:       T+90s  (bt_navigator active 후 15s 여유)
+    #
+    # 이전 버그: frontier_explorer를 LaunchDescription 최상위에 TimerAction(90s)으로
+    #   등록 → launch 프로세스 시작 기준 90초 카운트 (DDC 완료 기준 아님).
+    #   DDC가 ~20초에 완료되면 frontier는 DDC+70s에 시작 → bt_navigator(DDC+75s)보다
+    #   5초 빨리 시작될 수 있음 → nav_server_ready=False 영구화.
+    # 수정: frontier를 nav2_after_ddc 이벤트 체인 내부로 이동 (DDC 기준 90s 보장).
+    frontier_node = Node(
+        package='argos_bringup',
+        executable='frontier_explorer',
+        name='frontier_explorer',
+        parameters=[{
+            'use_sim_time': True,
+            'min_frontier_size': 3,  # 초기 맵이 작아 8이면 문 감지 못함
+            'exclusion_radius': 2.0,
+            'blacklist_radius': 1.0,
+            'exploration_rate': 0.5,
+            'robot_name': '',
+            'thermal_pause': True,
+        }],
+        output='screen',
+        condition=IfCondition(LaunchConfiguration('explore')),
+    )
+
     nav2_after_ddc = RegisterEventHandler(
         event_handler=OnProcessExit(
             target_action=ddc_spawner,
             on_exit=[
                 scan_relay,
                 TimerAction(period=45.0, actions=[nav2_include]),
+                TimerAction(period=90.0, actions=[frontier_node]),
             ],
         )
     )
@@ -218,24 +247,6 @@ def generate_launch_description():
         output='screen',
     )
 
-    # --- 9. 프론티어 자율 탐색 (explore:=true 시 활성화) ---
-    frontier_explorer = Node(
-        package='argos_bringup',
-        executable='frontier_explorer',
-        name='frontier_explorer',
-        parameters=[{
-            'use_sim_time': True,
-            'min_frontier_size': 8,
-            'exclusion_radius': 2.0,
-            'blacklist_radius': 1.0,
-            'exploration_rate': 0.5,  # exploration.launch.py와 통일
-            'robot_name': '',
-            'thermal_pause': True,
-        }],
-        output='screen',
-        condition=IfCondition(LaunchConfiguration('explore')),
-    )
-
     return LaunchDescription([
         world_arg,
         explore_arg,
@@ -248,5 +259,4 @@ def generate_launch_description():
         ddc_after_jsb,
         nav2_after_ddc,
         hotspot_detector,
-        frontier_explorer,
     ])
