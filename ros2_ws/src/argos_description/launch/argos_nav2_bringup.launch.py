@@ -44,12 +44,12 @@ def generate_launch_description():
 
     # --- docking_server 제외한 lifecycle 노드 목록 ---
     # slam_toolbox를 맨 앞에 배치: SLAM이 먼저 활성화되어야 map TF 발행 시작
+    # smoother_server, route_server 제거: nav2_params.yaml에 설정 없음
+    # MPPI Controller 자체 경로 최적화 + velocity_smoother로 충분
     lifecycle_nodes = [
         'slam_toolbox',
         'controller_server',
-        'smoother_server',
         'planner_server',
-        'route_server',
         'behavior_server',
         'velocity_smoother',
         'collision_monitor',
@@ -212,6 +212,8 @@ def generate_launch_description():
                 parameters=[
                     {'autostart': autostart},
                     {'node_names': lifecycle_nodes},
+                    {'bond_timeout': 0.0},
+                    {'attempt_respawn_reconnection': True},
                 ],
             ),
         ],

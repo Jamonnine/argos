@@ -1,0 +1,34 @@
+# D-Fire 데이터셋 YOLO 학습 설정
+# https://github.com/gaiasd/DFireDataset
+# 다운로드: https://www.kaggle.com/datasets/sayedgamal99/smoke-fire-detection-yolo
+
+path: ./datasets/d-fire  # 데이터셋 루트 경로 (학습 시 수정)
+train: images/train
+val: images/val
+test: images/test
+
+# 클래스 (2종)
+names:
+  0: fire
+  1: smoke
+
+# 학습 정보
+# 총 이미지: 21,527장 (train 14,122 / val 3,099 / test 4,306)
+# 어노테이션: 26,557개 바운딩박스
+# 구성: 화재만(1,164) + 연기만(5,867) + 화재+연기(4,658) + 정상(9,838)
+
+# 데이터 버전 관리 (AI 전문가 권고)
+# dataset_version: "1.0"
+# source: "Kaggle sayedgamal99/smoke-fire-detection-yolo (CC0)"
+# download_date: "2026-03-15"
+# license: "CC0 (Public Domain)"
+# random_seed: 42  # train/val/test 분할 재현성
+# format: "YOLO (normalized xywh)"
+
+# 추가 데이터셋 (파인튜닝 시)
+# ai_hub:
+#   name: "화재 발생 예측 영상 (고도화)"
+#   size: "2,381,940장"
+#   source: "aihub.or.kr (국내 거주자 무료)"
+#   license: "공공AI"
+#   model_included: "YOLOv8 best.pt (mAP50=0.953, 15종 화재현장 객체)"
