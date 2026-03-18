@@ -222,9 +222,15 @@ def generate_launch_description():
     # lifecycle_manager를 30초 지연 시작 (2026-03-19)
     # 이유: slam_toolbox configure가 Gazebo clock 안정화 전에 실패하면
     #   lifecycle_manager가 전체 abort → 30초면 clock+TF 안정화 충분
+    # lifecycle_manager를 GroupAction 밖 TimerAction으로 지연하되
+    # 멀티로봇 네임스페이스를 명시 적용 (PushROSNamespace 범위 밖이므로)
     ld.add_action(TimerAction(
         period=30.0,
         actions=[
+            PushROSNamespace(
+                condition=IfCondition(use_namespace),
+                namespace=namespace,
+            ),
             Node(
                 package='nav2_lifecycle_manager',
                 executable='lifecycle_manager',

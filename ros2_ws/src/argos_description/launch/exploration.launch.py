@@ -420,15 +420,17 @@ def generate_launch_description():
     )
 
     # --- 오케스트레이터 (중앙 지휘) ---
-    # 타이밍 근거:
-    #   DDC 완료 → +45s Nav2 시작 → +45s Nav2 lifecycle 활성화 → +90s frontier 시작
-    #   = launch 시작 후 ~135s (DDC 완료 기준). wall time 120s는 여유 있는 하한.
-    #   오케스트레이터는 heartbeat(10s) + Deadline QoS(5s) 기반으로 로봇 등록 대기하므로
-    #   frontier 시작과 동시 기동해도 안전하지만, 45s는 Nav2가 아직 초기화 중일 수 있음.
-    # 수정: 45s → 120s (DDC + Nav2 완전 활성화 충분히 보장)
+    # 타이밍 근거 (RTF 0.28x 환경 기준):
+    #   DDC 완료(wall) → +45s Nav2 include 시작 → +30s lifecycle_manager 지연(bringup 내부)
+    #   → +configure/activate 시간 (slam_toolbox 포함 8노드, RTF 0.28x에서 ~60s wall)
+    #   = DDC 완료 후 약 135s wall time 소요.
+    #   argos_nav2_bringup.launch.py에서 lifecycle_manager가 이미 30초 TimerAction으로
+    #   지연 시작하므로, exploration.launch.py에서 별도 지연 패턴 추가 불필요.
+    #   오케스트레이터는 heartbeat(10s) + Deadline QoS(5s)로 로봇 등록 대기하므로
+    #   Nav2 완전 active 이후 시작해야 함. 150s로 상향 (RTF 0.28x 여유 확보).
     all_robot_names = [r['name'] for r in ROBOTS] + [d['name'] for d in DRONES]
     orchestrator = TimerAction(
-        period=120.0,
+        period=150.0,
         actions=[
             Node(
                 package='argos_bringup',
