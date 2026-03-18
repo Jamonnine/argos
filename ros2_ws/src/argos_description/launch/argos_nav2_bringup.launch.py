@@ -22,6 +22,7 @@ from launch.actions import (
     GroupAction,
     IncludeLaunchDescription,
     SetEnvironmentVariable,
+    TimerAction,
 )
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -45,7 +46,7 @@ def generate_launch_description():
     # --- docking_server 제외한 lifecycle 노드 목록 ---
     # slam_toolbox를 맨 앞에 배치: SLAM이 먼저 활성화되어야 map TF 발행 시작
     # smoother_server, route_server 제거: nav2_params.yaml에 설정 없음
-    # MPPI Controller 자체 경로 최적화 + velocity_smoother로 충분
+    # slam_toolbox 맨 앞 필수: SLAM→map TF→planner global_costmap 의존 체인
     lifecycle_nodes = [
         'slam_toolbox',
         'controller_server',
@@ -204,6 +205,26 @@ def generate_launch_description():
                 parameters=[configured_params],
                 remappings=remappings,
             ),
+            # lifecycle_manager는 GroupAction 밖에서 30초 지연 시작 (아래 참조)
+        ],
+    )
+
+    ld = LaunchDescription()
+    ld.add_action(stdout_linebuf_envvar)
+    ld.add_action(declare_namespace_cmd)
+    ld.add_action(declare_use_namespace_cmd)
+    ld.add_action(declare_slam_cmd)
+    ld.add_action(declare_use_sim_time_cmd)
+    ld.add_action(declare_params_file_cmd)
+    ld.add_action(declare_autostart_cmd)
+    ld.add_action(bringup_group)
+
+    # lifecycle_manager를 30초 지연 시작 (2026-03-19)
+    # 이유: slam_toolbox configure가 Gazebo clock 안정화 전에 실패하면
+    #   lifecycle_manager가 전체 abort → 30초면 clock+TF 안정화 충분
+    ld.add_action(TimerAction(
+        period=30.0,
+        actions=[
             Node(
                 package='nav2_lifecycle_manager',
                 executable='lifecycle_manager',
@@ -217,16 +238,6 @@ def generate_launch_description():
                 ],
             ),
         ],
-    )
-
-    ld = LaunchDescription()
-    ld.add_action(stdout_linebuf_envvar)
-    ld.add_action(declare_namespace_cmd)
-    ld.add_action(declare_use_namespace_cmd)
-    ld.add_action(declare_slam_cmd)
-    ld.add_action(declare_use_sim_time_cmd)
-    ld.add_action(declare_params_file_cmd)
-    ld.add_action(declare_autostart_cmd)
-    ld.add_action(bringup_group)
+    ))
 
     return ld

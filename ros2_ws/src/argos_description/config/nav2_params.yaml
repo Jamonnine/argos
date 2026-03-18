@@ -176,8 +176,10 @@ local_costmap:
           obstacle_min_range: 0.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        inflation_radius: 0.55
-        cost_scaling_factor: 3.0
+        # circumscribed radius 0.44m → minimum 0.45m 필수 (Nav2 경고 방지)
+        # 이전: 0.55m (실내 과잉), 0.35m (circumscribed 미달)
+        inflation_radius: 0.45
+        cost_scaling_factor: 5.0
       always_send_full_costmap: true
 
 global_costmap:
@@ -312,7 +314,8 @@ collision_monitor:
       # 수정: +5cm(0.35,0.25) → 통과 가능 폭 0.5m 확보
       points: "[[0.35, 0.25], [0.35, -0.25], [-0.35, -0.25], [-0.35, 0.25]]"
       action_type: "stop"
-      min_points: 4
+      # min_points 4→12: 실내 좁은 복도에서 과민 정지 방지 (2026-03-19)
+      min_points: 12
       visualize: true
       polygon_pub_topic: "polygon_stop"
       enabled: true
