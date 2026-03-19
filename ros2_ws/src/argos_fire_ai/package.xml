@@ -8,6 +8,7 @@
 
   <depend>rclpy</depend>
   <depend>sensor_msgs</depend>
+  <depend>cv_bridge</depend>
   <depend>argos_interfaces</depend>
 
   <test_depend>python3-pytest</test_depend>

@@ -1,0 +1,33 @@
+# ARGOS 멀티로봇 맵 병합 파라미터
+# ===================================
+# multirobot_map_merge: 각 UGV가 독립 SLAM으로 생성한 로컬 맵을
+# 하나의 글로벌 맵(/map_merged)으로 통합.
+#
+# known_init_poses: true → 각 로봇의 초기 스폰 좌표를 그대로 사용
+# (exploration.launch.py ROBOTS 리스트와 반드시 동기화할 것)
+
+map_merge:
+  ros__parameters:
+    # ── 병합 알고리즘 ──────────────────────────────────────────────
+    # 초기 위치 알려짐: exploration.launch.py 스폰 좌표 기준
+    known_init_poses: true
+
+    # 병합 주기 (Hz)
+    merging_rate: 1.0
+
+    # 새 로봇 탐색 주기 (Hz)
+    discovery_rate: 0.5
+
+    # 위치 추정 임계값 (0.0~1.0, 낮을수록 느슨하게 병합)
+    estimation_confidence: 0.5
+
+    # ── 출력 맵 해상도 ─────────────────────────────────────────────
+    # slam_params.yaml의 resolution(0.05m/px)과 통일
+    resolution: 0.05
+
+    # ── 초기 위치 (exploration.launch.py ROBOTS와 동기화) ──────────
+    # 형식: [x, y, yaw(rad)]
+    # argos1: x=3.0, y=2.5, yaw=0.0
+    # argos2: x=7.0, y=2.5, yaw=0.0
+    init_pose_argos1: [3.0, 2.5, 0.0]
+    init_pose_argos2: [7.0, 2.5, 0.0]

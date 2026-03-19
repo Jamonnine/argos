@@ -17,6 +17,8 @@ setup(
     description='ARGOS AI fire/smoke detection (AGPL-3.0)',
     license='AGPL-3.0',
     entry_points={
-        'console_scripts': [],
+        'console_scripts': [
+            'fire_detector = argos_fire_ai.fire_detector_node:main',
+        ],
     },
 )
