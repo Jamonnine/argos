@@ -338,9 +338,11 @@ collision_monitor:
       enabled: true
     observation_sources: ["scan"]
     scan:
-      source_timeout: 0.2
+      # source_timeout: 0.2→2.0 (RTF 0.28x + gz_bridge 간헐 지연 보정)
+      source_timeout: 2.0
       type: "scan"
-      topic: "scan"
+      # scan_base: scan_frame_relay 출력 (frame_id=base_footprint, gz_bridge 직접 의존 제거)
+      topic: "scan_base"
       enabled: true
 
 # ===== slam_toolbox (nav2_bringup slam=True 모드에서 사용) =====
