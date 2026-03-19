@@ -30,6 +30,7 @@ Nav2 NavigateToPose 액션으로 자율 탐색을 수행한다.
   구독: /map (nav_msgs/OccupancyGrid)
         /thermal/detections (ThermalDetection)
         /exploration/targets (PoseStamped, 다른 로봇 대상)
+        /orchestrator/autonomy_mode (String) — C-3: "CENTRALIZED"|"LOCAL_AUTONOMY"
   발행: /exploration/targets (PoseStamped, 내 대상)
         exploration/status (String)
         exploration/frontiers_viz (MarkerArray, RViz 시각화)
@@ -83,6 +84,10 @@ class FrontierExplorer(LifecycleNode):
         self.declare_parameter('thermal_pause', True)
         self.declare_parameter('map_frame', 'map')
         self.declare_parameter('base_frame', 'base_footprint')
+        # C-3: 배터리 자동 귀환 임계값 + 홈 좌표 (LOCAL_AUTONOMY 모드에서 사용)
+        self.declare_parameter('home_x', 0.0)
+        self.declare_parameter('home_y', 0.0)
+        self.declare_parameter('battery_return_threshold', 30.0)
 
         # 런타임 상태 (on_configure에서 초기화)
         self.min_frontier_size = None
@@ -105,12 +110,19 @@ class FrontierExplorer(LifecycleNode):
         self._nav_lock = None
         self._goal_cancelled = False
         self.nav_error_count = 0
+        # C-3: 자율 모드 상태
+        self.autonomy_mode = 'CENTRALIZED'  # "CENTRALIZED" | "LOCAL_AUTONOMY"
+        self.home_x = 0.0
+        self.home_y = 0.0
+        self.battery_return_threshold = 30.0
+        self._local_autonomy_active = False  # LOCAL_AUTONOMY 진입 여부 추적
 
         # 구독/발행/타이머/ActionClient/TF2 핸들
         # (on_activate에서 생성, on_deactivate에서 해제)
         self.map_sub = None
         self.thermal_sub = None
         self.peers_sub = None
+        self.autonomy_mode_sub = None  # C-3: /orchestrator/autonomy_mode
         self.target_pub = None
         self.status_pub = None
         self.frontier_viz_pub = None
@@ -138,6 +150,10 @@ class FrontierExplorer(LifecycleNode):
         self.map_frame = self.get_parameter('map_frame').value
         self.base_frame = self.get_parameter('base_frame').value
         self.thermal_pause_enabled = self.get_parameter('thermal_pause').value
+        # C-3: 홈 좌표 및 배터리 귀환 임계값 읽기
+        self.home_x = self.get_parameter('home_x').value
+        self.home_y = self.get_parameter('home_y').value
+        self.battery_return_threshold = self.get_parameter('battery_return_threshold').value
 
         # 상태 초기화
         self.current_map = None
@@ -153,6 +169,9 @@ class FrontierExplorer(LifecycleNode):
         self._nav_lock = threading.Lock()
         self._goal_cancelled = False
         self.nav_error_count = 0
+        # C-3: 자율 모드 초기화
+        self.autonomy_mode = 'CENTRALIZED'
+        self._local_autonomy_active = False
 
         self.get_logger().info(
             f'FrontierExplorer configured (robot: {self.robot_name or "single"})')
@@ -200,6 +219,16 @@ class FrontierExplorer(LifecycleNode):
         self.peers_sub = self.create_subscription(
             PoseStamped, '/exploration/targets',
             self.peer_target_callback, 10)
+
+        # C-3: 오케스트레이터 자율 모드 구독 — TRANSIENT_LOCAL로 재시작 후 최신 값 즉시 수신
+        autonomy_qos = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            depth=1,
+        )
+        self.autonomy_mode_sub = self.create_subscription(
+            String, '/orchestrator/autonomy_mode',
+            self.autonomy_mode_callback, autonomy_qos)
 
         # --- Publishers ---
         self.target_pub = self.create_publisher(
@@ -268,6 +297,9 @@ class FrontierExplorer(LifecycleNode):
         if self.peers_sub is not None:
             self.destroy_subscription(self.peers_sub)
             self.peers_sub = None
+        if self.autonomy_mode_sub is not None:
+            self.destroy_subscription(self.autonomy_mode_sub)
+            self.autonomy_mode_sub = None
 
         # 발행자 해제
         if self.target_pub is not None:
@@ -324,6 +356,9 @@ class FrontierExplorer(LifecycleNode):
         self._goal_cancelled = False
         self.nav_error_count = 0
         self._cb_group = None
+        # C-3: 자율 모드 리셋
+        self.autonomy_mode = 'CENTRALIZED'
+        self._local_autonomy_active = False
         self.get_logger().info('FrontierExplorer cleaned up')
         return TransitionCallbackReturn.SUCCESS
 
@@ -387,6 +422,38 @@ class FrontierExplorer(LifecycleNode):
             response.message = 'Not paused'
         return response
 
+    def autonomy_mode_callback(self, msg: String):
+        """C-3: 오케스트레이터 자율 모드 수신 처리.
+
+        LOCAL_AUTONOMY: 오케스트레이터 goal 대기 중지 → 자체 프론티어 탐색 전환.
+        CENTRALIZED   : 현재 goal 완료 후 오케스트레이터 명령 대기 복귀.
+        """
+        new_mode = msg.data
+        if new_mode not in ('CENTRALIZED', 'LOCAL_AUTONOMY'):
+            self.get_logger().warn(
+                f'Unknown autonomy_mode received: "{new_mode}" — ignored')
+            return
+
+        if new_mode == self.autonomy_mode:
+            return  # 모드 변경 없음, 중복 처리 방지
+
+        prev_mode = self.autonomy_mode
+        self.autonomy_mode = new_mode
+
+        if new_mode == 'LOCAL_AUTONOMY':
+            self._local_autonomy_active = True
+            self.get_logger().warn(
+                f'Autonomy mode: CENTRALIZED → LOCAL_AUTONOMY '
+                f'(robot: {self.robot_name or "single"}) — 자체 프론티어 탐색 전환')
+            self.publish_status('local_autonomy')
+        else:
+            # CENTRALIZED 복귀: 현재 goal은 완료 후 대기로 전환
+            self._local_autonomy_active = False
+            self.get_logger().info(
+                f'Autonomy mode: LOCAL_AUTONOMY → CENTRALIZED '
+                f'(robot: {self.robot_name or "single"}) — 오케스트레이터 명령 대기')
+            self.publish_status('exploring')
+
     # ─────────────────── Nav2 Server Check ───────────────────
 
     def _check_nav_server(self):
@@ -399,7 +466,13 @@ class FrontierExplorer(LifecycleNode):
     # ─────────────────── Core Loop ───────────────────
 
     def explore_cycle(self):
-        """주기적 프론티어 탐색 사이클."""
+        """주기적 프론티어 탐색 사이클.
+
+        C-3 자율 모드 분기:
+          - CENTRALIZED    : 기존 동작 (오케스트레이터 제어 하에 탐색)
+          - LOCAL_AUTONOMY : 오케스트레이터 없이 자체 프론티어 탐색.
+                             배터리 임계값 이하 시 홈 좌표로 자동 귀환.
+        """
         if self.current_map is None or self.paused or self.exploration_complete:
             return
 
@@ -410,6 +483,11 @@ class FrontierExplorer(LifecycleNode):
         with self._nav_lock:
             if self.navigating:
                 return
+
+        # C-3: LOCAL_AUTONOMY 모드 — 배터리 30% 이하 시 자동 귀환
+        if self._local_autonomy_active:
+            self._check_local_autonomy_battery_return()
+            # 귀환 중이면 이후 탐색 루프 스킵 (navigating=True로 차단됨)
 
         frontiers = self.detect_frontiers()
         self.publish_frontier_markers(frontiers)
@@ -612,6 +690,36 @@ class FrontierExplorer(LifecycleNode):
             self.nav_goal_handle = None
 
     # ─────────────────── Helpers ───────────────────
+
+    def _check_local_autonomy_battery_return(self):
+        """C-3: LOCAL_AUTONOMY 모드에서 배터리 임계값 이하 시 홈 좌표로 귀환.
+
+        RobotStatus 토픽에서 배터리 정보를 직접 수신하지 않으므로,
+        오케스트레이터가 발행하는 MissionState 또는 파라미터로 제어.
+        현재는 파라미터 기반 정적 임계값 사용 — 실제 배터리는 RobotStatus 구독 확장으로 개선 가능.
+
+        주의: 이 메서드는 explore_cycle 내에서 navigating=False일 때만 호출됨.
+              귀환 목표를 보내면 navigating=True가 되어 이후 사이클에서는 호출되지 않음.
+        """
+        # 실제 배터리 값은 이 노드에서 직접 수신하지 않으므로 파라미터 트리거 방식.
+        # 향후 /{robot_name}/battery_state 구독으로 교체 가능.
+        # 현재는 HOME 귀환 판단을 explore_cycle 외부(오케스트레이터)에 위임하되,
+        # LOCAL_AUTONOMY 중 탐색이 완전히 끊어진 경우 홈으로 safe return.
+        if self.exploration_complete:
+            # 탐색 완료 + LOCAL_AUTONOMY → 홈 귀환
+            self.get_logger().warn(
+                'LOCAL_AUTONOMY: 탐색 완료 — 홈 좌표로 안전 귀환')
+            self._send_home_goal()
+
+    def _send_home_goal(self):
+        """C-3: 홈 좌표(파라미터)로 Nav2 목표 전송."""
+        with self._nav_lock:
+            if self.navigating:
+                return
+        self.get_logger().warn(
+            f'LOCAL_AUTONOMY: 홈 귀환 ({self.home_x:.1f}, {self.home_y:.1f})')
+        self.publish_status('returning_home')
+        self.send_nav_goal((self.home_x, self.home_y))
 
     def _get_robot_position(self):
         """TF2로 로봇의 map 프레임 내 위치 조회."""

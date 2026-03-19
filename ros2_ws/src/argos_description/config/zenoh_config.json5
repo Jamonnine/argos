@@ -1,6 +1,7 @@
 {
-  // ARGOS Zenoh 통신 설정
-  // 사용: RMW_IMPLEMENTATION=rmw_zenoh_cpp ros2 launch argos_description navigation.launch.py
+  // ARGOS Zenoh 통신 설정 (소방 현장용, Phase C-1)
+  // 사용: ros2 launch argos_description navigation_zenoh.launch.py
+  //       또는 RMW_IMPLEMENTATION=rmw_zenoh_cpp ros2 launch argos_description navigation.launch.py
   //
   // 전제 조건 (WSL2):
   //   sudo apt install ros-jazzy-rmw-zenoh-cpp
@@ -26,9 +27,11 @@
 
   // 스카우팅(노드 자동 검색) 설정
   scouting: {
-    // 소방 현장 WiFi: multicast 비활성화 (단방향 통신 선호, 간섭 최소화)
+    // multicast: 현장 WiFi 환경에서 활성화 (동일 서브넷 로봇 자동 발견)
+    // 멀티캐스트 불가 환경(NAT, 격리망)에서는 false로 변경
     multicast: {
-      enabled: false
+      enabled: true,
+      address: "224.0.0.224:7446"
     },
     // gossip: 알려진 피어를 통해 노드 정보 전파 (unicast 기반)
     gossip: {
@@ -38,11 +41,19 @@
     }
   },
 
-  // QoS 설정: 실시간 제어 우선
+  // 전송 계층 설정: 센서 데이터 높은 처리량 대응
   transport: {
     unicast: {
-      // 소방 현장 불안정 무선망 대응: 재전송 5회
+      // 소방 현장 불안정 무선망: 최대 세션 수 제한
+      max_sessions: 10,
+      // 실시간 제어 우선 (LiDAR, 열화상 데이터)
       lowlatency: true
+    },
+    link: {
+      tx: {
+        // 송신 큐 크기: 센서 데이터 버스트 처리 (기본 256)
+        queue_size: 256
+      }
     }
   }
 }

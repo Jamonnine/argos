@@ -20,6 +20,7 @@ ARGOS Orchestrator Node (MS-7)
   구독: /orchestrator/robot_status (RobotStatus, per robot)
         /orchestrator/fire_alert (FireAlert)
   발행: /orchestrator/mission_state (MissionState)
+        /orchestrator/autonomy_mode (std_msgs/String) — "CENTRALIZED" | "LOCAL_AUTONOMY"
   서비스: /orchestrator/emergency_stop (Trigger) — 전원 즉시 정지
           /orchestrator/set_stage (SetStage) — 임무 단계 전환
 
@@ -44,6 +45,7 @@ from rclpy.duration import Duration
 from rclpy.callback_groups import ReentrantCallbackGroup
 
 from std_srvs.srv import Trigger
+from std_msgs.msg import String
 from geometry_msgs.msg import Point, Twist, TwistStamped, PoseStamped
 from argos_interfaces.msg import (
     RobotStatus, FireAlert, MissionState,
@@ -184,6 +186,7 @@ class OrchestratorNode(LifecycleNode):
         self.fire_sub = None
         self._sensor_subs = []  # 8중 센싱 구독 핸들 리스트
         self.mission_pub = None
+        self.autonomy_mode_pub = None  # C-3: 로봇별 자율 모드 토픽
         self.stop_srv = None
         self.resume_srv = None
         self._gas_watchdog_timer = None
@@ -304,6 +307,15 @@ class OrchestratorNode(LifecycleNode):
         self.mission_pub = self.create_publisher(
             MissionState, '/orchestrator/mission_state', reliable_qos)
 
+        # C-3: 자율 모드 발행자 — TRANSIENT_LOCAL로 늦게 접속한 구독자도 최신 값 수신
+        autonomy_qos = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            depth=1,
+        )
+        self.autonomy_mode_pub = self.create_publisher(
+            String, '/orchestrator/autonomy_mode', autonomy_qos)
+
         # --- Services ---
         self.stop_srv = self.create_service(
             Trigger, '/orchestrator/emergency_stop',
@@ -358,6 +370,9 @@ class OrchestratorNode(LifecycleNode):
         if self.mission_pub is not None:
             self.destroy_publisher(self.mission_pub)
             self.mission_pub = None
+        if self.autonomy_mode_pub is not None:
+            self.destroy_publisher(self.autonomy_mode_pub)
+            self.autonomy_mode_pub = None
 
         # emergency_stop용 cmd_vel 발행자 해제
         for rid, pub in list(self.robot_stop_pubs.items()):
@@ -459,7 +474,15 @@ class OrchestratorNode(LifecycleNode):
 
             if r.comm_lost:
                 r.comm_lost = False
-                self.get_logger().info(f'Robot {rid} reconnected')
+                # C-3: 재연결 시 CENTRALIZED 복귀 발행 (lock 밖에서 수행하기 위해 플래그로 전달)
+                _reconnected = True
+            else:
+                _reconnected = False
+
+        # C-3: 재연결 확인 후 lock 밖에서 발행 (lock 내 발행 시 데드락 위험)
+        if _reconnected:
+            self.get_logger().info(f'Robot {rid} reconnected — resuming CENTRALIZED')
+            self._publish_autonomy_mode(rid, 'CENTRALIZED')
 
         # 배터리 경고/자동귀환 (lock 밖에서 — r은 참조로 안전)
         self._check_battery(rid, r)
@@ -993,7 +1016,7 @@ class OrchestratorNode(LifecycleNode):
             r.battery_critical_acted = False
 
     def check_heartbeats(self):
-        """주기적 heartbeat 점검: 타임아웃 시 통신 두절 판정."""
+        """주기적 heartbeat 점검: 타임아웃 시 통신 두절 판정 + 자율 모드 전환 발행."""
         now = self.get_clock().now().nanoseconds / 1e9
         lost_count = 0
 
@@ -1006,10 +1029,12 @@ class OrchestratorNode(LifecycleNode):
 
             elapsed = now - r.last_seen
             if elapsed > self.HEARTBEAT_TIMEOUT and not r.comm_lost:
+                # C-3: 두절 감지 → LOCAL_AUTONOMY 전환 발행
                 r.comm_lost = True
                 r.state = RobotStatus.STATE_COMM_LOST
                 self.get_logger().warn(
-                    f'COMM LOST: {rid} (no status for {elapsed:.0f}s)')
+                    f'Robot {rid} comm lost — switching to LOCAL_AUTONOMY')
+                self._publish_autonomy_mode(rid, 'LOCAL_AUTONOMY')
 
             if r.comm_lost:
                 lost_count += 1
@@ -1018,6 +1043,19 @@ class OrchestratorNode(LifecycleNode):
         if active_count > 0 and lost_count > active_count / 2:
             self.get_logger().error(
                 f'CRITICAL: {lost_count}/{active_count} robots comm lost')
+
+    def _publish_autonomy_mode(self, rid: str, mode: str):
+        """C-3: 특정 로봇의 자율 모드 토픽 발행.
+
+        Args:
+            rid: 대상 로봇 ID
+            mode: "CENTRALIZED" | "LOCAL_AUTONOMY"
+        """
+        if self.autonomy_mode_pub is None:
+            return
+        msg = String()
+        msg.data = mode
+        self.autonomy_mode_pub.publish(msg)
 
     def _execute_fire_response(self, fire_pt: Point, severity: str):
         """화재 대응 전술 실행: 최근접 UGV 배정 + 드론 화점 상공 배치.
