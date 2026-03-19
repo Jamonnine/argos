@@ -1,0 +1,22 @@
+# ReportFireAlert.action
+# 화점 감지 시 오케스트레이터에 보고하는 BT Action 인터페이스.
+# ReportFire BT 노드가 /report_fire_alert Action Server를 호출할 때 사용.
+
+# Goal: BT가 오케스트레이터에 전달하는 화점 정보
+geometry_msgs/PointStamped fire_location    # 화점 위치 (map 프레임)
+float32 max_temperature_kelvin             # 최고 온도 (켈빈)
+string severity                            # "low" | "medium" | "high" | "critical"
+float32 confidence                         # 감지 신뢰도 0.0~1.0
+string robot_id                            # 보고 로봇 ID
+
+---
+
+# Result: 오케스트레이터의 처리 결과
+bool accepted                              # 보고 수락 여부
+string alert_id                            # 할당된 알림 ID (로깅용)
+string message                             # 수락/거절 메시지
+
+---
+
+# Feedback: 처리 중 상태 (선택적)
+string status                              # "SENDING" | "ACKNOWLEDGED" | "QUEUED"

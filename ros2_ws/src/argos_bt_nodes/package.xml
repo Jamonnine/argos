@@ -1,0 +1,37 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>argos_bt_nodes</name>
+  <version>0.1.0</version>
+  <description>
+    ARGOS 소방 정찰 BehaviorTree 커스텀 C++ 플러그인 패키지.
+    DetectFire(Condition) + ReportFire(Action) 노드를 argos_bt_nodes.so로
+    빌드하여 Nav2 BT Navigator가 런타임에 동적 로드한다.
+
+    의존 관계:
+      - behaviortree_cpp: BT::ConditionNode 기반 클래스
+      - nav2_behavior_tree: BtActionNode 래퍼 (Action 전송/취소/타임아웃 자동 처리)
+      - argos_interfaces: FireAlert.msg, ReportFireAlert.action
+  </description>
+  <maintainer email="minbal@daegufire.ai.kr">민발</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- 런타임 + 빌드타임 공통 의존성 -->
+  <depend>rclcpp</depend>
+  <depend>rclcpp_action</depend>
+  <depend>behaviortree_cpp</depend>
+  <depend>nav2_behavior_tree</depend>
+  <depend>argos_interfaces</depend>
+  <depend>geometry_msgs</depend>
+  <depend>std_msgs</depend>
+
+  <!-- 테스트 의존성 (선택) -->
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

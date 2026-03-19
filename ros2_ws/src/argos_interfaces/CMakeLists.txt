@@ -24,6 +24,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/NavigateToObject.srv"
   "action/MoveToTarget.action"
   "action/PatrolArea.action"
+  "action/ReportFireAlert.action"
   DEPENDENCIES geometry_msgs std_msgs sensor_msgs
 )
 
