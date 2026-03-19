@@ -58,6 +58,13 @@ setup(
             'mcp_robot_server = argos_bringup.mcp_robot_server:main',
             # lidar_link TF 우회: /scan → /scan_base (frame_id=base_footprint) 릴레이
             'scan_frame_relay = argos_bringup.scan_frame_relay:main',
+            # 위험 구역 keepout zone 동적 관리
+            'keepout_manager = argos_bringup.keepout_manager:main',
+            # Kalman 화점 추적 + 확산 예측
+            'kalman_fire_tracker = argos_bringup.kalman_fire_tracker:main',
+            # Platform 계층 — PlatformInterface 구현체 테스트 진입점
+            'ugv_platform = argos_bringup.ugv_platform:main',
+            'px4_platform = argos_bringup.px4_platform:main',
         ],
     },
 )
