@@ -98,7 +98,7 @@ class FireDetectorNode(Node):
         self.declare_parameter('confidence_threshold', 0.5)
         self.declare_parameter('max_fps', 5.0)
         self.declare_parameter('input_size', 320)
-        self.declare_parameter('use_sim_time', True)
+        # use_sim_time은 ROS2 Jazzy에서 자동 선언됨 — 중복 선언 금지
 
         model_path = self.get_parameter('model_path').value
         self.conf_threshold = self.get_parameter('confidence_threshold').value
