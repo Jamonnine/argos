@@ -32,8 +32,10 @@ import os
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
+    ExecuteProcess,
     IncludeLaunchDescription,
     SetEnvironmentVariable,
+    TimerAction,
 )
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
@@ -103,15 +105,23 @@ def generate_launch_description():
         }.items(),
     )
 
+    # Zenoh 라우터 데몬 (피어간 통신에 필수)
+    zenoh_router = ExecuteProcess(
+        cmd=['ros2', 'run', 'rmw_zenoh_cpp', 'rmw_zenohd'],
+        output='screen',
+    )
+
     return LaunchDescription([
         # 인자 선언
         zenoh_config_arg,
         world_arg,
         explore_arg,
         headless_arg,
-        # Zenoh 환경 설정 (navigation.launch.py 포함보다 먼저 실행)
+        # Zenoh 환경 설정
         set_rmw,
         set_zenoh_config,
-        # 기존 navigation 스택 기동
-        navigation_include,
+        # Zenoh 라우터 먼저 시작
+        zenoh_router,
+        # 라우터 초기화 3초 대기 후 navigation 스택 기동
+        TimerAction(period=3.0, actions=[navigation_include]),
     ])
