@@ -1,0 +1,125 @@
+# ARGOS Isaac Lab GPU 가속 시뮬레이션 — Docker Compose
+#
+# 실행: docker compose up -d isaac-lab
+# 로그: docker compose logs -f isaac-lab
+# 학습: docker compose exec isaac-lab python /workspace/training/isaac_argos.py
+# 종료: docker compose down
+#
+# 사전 요건:
+#   1. NVIDIA Container Toolkit 설치: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html
+#   2. NVIDIA driver >= 525.85.12 (RTX 4050 기준 최신 권장)
+#   3. nvcr.io 계정: https://ngc.nvidia.com 에서 API 키 발급 후
+#      docker login nvcr.io -u \$oauthtoken -p <NGC_API_KEY>
+
+services:
+  isaac-lab:
+    # Isaac Sim 4.5.0 공식 이미지 (nvcr.io/nvidia/isaac-sim)
+    # Dockerfile로 빌드할 경우 build 섹션 활성화 + image 제거
+    image: nvcr.io/nvidia/isaac-sim:4.5.0
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    container_name: argos-isaac-lab
+
+    # NVIDIA GPU 런타임 (NVIDIA Container Toolkit 필수)
+    runtime: nvidia
+    environment:
+      # 모든 GPU 노출 (RTX 4050 1개 = GPU 0)
+      - NVIDIA_VISIBLE_DEVICES=all
+      # GPU 가속 렌더링 권한 전체 허용
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      # Headless 모드 (GUI 불필요한 학습 전용)
+      - DISPLAY=
+      # Isaac Sim root 실행 허용 (Docker 내 필수)
+      - OMNI_KIT_ALLOW_ROOT=1
+      # RTX 4050 최적화: 병렬 환경 수 제한 (VRAM 6GB 기준)
+      # 128이상 설정 시 OOM 발생 가능 — 64 권장
+      - ARGOS_NUM_ENVS=64
+      # 커리큘럼 레벨 (1: 단일/무장애, 2: 단일/장애물, 3: 다중/협업)
+      - ARGOS_CURRICULUM_LEVEL=1
+
+    volumes:
+      # ARGOS 학습 코드: host → container /workspace/training
+      - ../../training:/workspace/training
+      # ROS2 워크스페이스 소스: 환경 정의 파일 공유
+      - ../../ros2_ws/src:/workspace/ros2_ws/src
+      # 학습 체크포인트 저장: 영속 보존
+      - argos-checkpoints:/workspace/checkpoints
+      # 학습 로그 (TensorBoard 연동)
+      - argos-logs:/workspace/logs
+
+    ports:
+      # Isaac Sim 스트리밍 서버 (원격 시각화)
+      # 접속: Omniverse Streaming Client → localhost:8211
+      - "8211:8211"
+      # WebSocket 스트리밍 (브라우저 접속: http://localhost:8012)
+      - "8012:8012"
+      # Nucleus 서버 포트 (assets 캐시)
+      - "3009:3009"
+      # TensorBoard: docker compose exec isaac-lab tensorboard --logdir /workspace/logs
+      - "6006:6006"
+
+    # GPU 메모리 공유 크기 (Isaac Sim 멀티프로세싱 필요)
+    shm_size: "8gb"
+
+    # 비정상 종료 시 재시작 안 함 (학습 실패 원인 확인 필요)
+    restart: "no"
+
+    # 학습 컨테이너는 host 네트워크 불필요 — bridge 사용
+    # (ROS2 연동 필요 시 network_mode: host로 변경)
+    # network_mode: host
+
+    # 실행 명령 override (기본: 대기 상태)
+    # 학습 시작: docker compose run isaac-lab python /workspace/training/isaac_argos.py
+    command: >
+      bash -c "
+        echo '=== ARGOS Isaac Lab 컨테이너 시작 ===' &&
+        echo 'GPU 확인:' && nvidia-smi --query-gpu=name,memory.total --format=csv,noheader &&
+        echo '' &&
+        echo '학습 시작 방법:' &&
+        echo '  docker compose exec isaac-lab python /workspace/training/isaac_argos.py' &&
+        echo '' &&
+        echo '컨테이너 대기 중... (Ctrl+C로 종료)' &&
+        tail -f /dev/null
+      "
+
+    # 상태 체크: GPU 접근 가능 여부
+    healthcheck:
+      test: ["CMD", "nvidia-smi"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+
+# ──────────────────────────────────────────
+# 선택적 서비스
+# ──────────────────────────────────────────
+
+  # TensorBoard (학습 진행 시각화)
+  # 접속: http://localhost:6007
+  tensorboard:
+    image: tensorflow/tensorflow:latest
+    container_name: argos-tensorboard
+    volumes:
+      - argos-logs:/logs:ro
+    ports:
+      - "6007:6006"
+    command: tensorboard --logdir /logs --bind_all
+    profiles:
+      # 기본 실행에서 제외 (명시적 활성화 필요)
+      # docker compose --profile monitor up -d
+      - monitor
+    restart: unless-stopped
+
+
+# ──────────────────────────────────────────
+# Named Volumes
+# ──────────────────────────────────────────
+volumes:
+  # 학습 체크포인트 (에피소드별 모델 가중치)
+  argos-checkpoints:
+    driver: local
+  # TensorBoard 로그
+  argos-logs:
+    driver: local
