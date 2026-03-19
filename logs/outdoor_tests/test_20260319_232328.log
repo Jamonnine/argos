@@ -1,0 +1,2 @@
+[2026-03-19 23:23:28] [[0;32mINFO [0m] 로그 파일: /mnt/c/Users/USER/Desktop/SUPERAGENT/projects/argos/logs/outdoor_tests/test_20260319_232328.log
+[2026-03-19 23:23:28] [[0;31mERROR[0m] ROS2 환경이 source되지 않았습니다. 'source /opt/ros/jazzy/setup.bash' 실행 후 재시도

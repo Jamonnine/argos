@@ -11,6 +11,10 @@
 - 화점-피해자 근접 경고 (check_victim_fire_proximity)
 - 트랙 통계 (get_statistics)
 - 확산 추세 판정 (get_fire_spread_trend)
+
+확산 예측 기능 (신규):
+- predict_fire_positions: 속도 벡터 기반 N분 후 화점 위치 예측
+- get_evacuation_direction: 예측 화점 반대 방향 대피 경로 계산
 """
 
 import time
@@ -317,6 +321,136 @@ class SimpleKalmanTracker:
             'avg_confidence': avg_confidence,
             'oldest_age': oldest.age,
             'oldest_track_id': oldest.track_id,
+        }
+
+    def predict_fire_positions(
+        self, horizon_sec: float = 300.0
+    ) -> List[dict]:
+        """속도 벡터 기반 화점 위치 예측.
+
+        현재 추정된 속도(vx, vy)를 선형 외삽하여
+        horizon_sec 초 후의 화점 위치를 계산합니다.
+
+        소방 현장 기준: 목조 건물 화재 확산 속도 평균 0.3~0.8 m/min.
+        예측 지평선 기본값 5분(300s) — 대피 판단 골든타임.
+
+        Args:
+            horizon_sec: 예측 지평선 (초, 기본 300s = 5분)
+
+        Returns:
+            예측 딕셔너리 리스트. 각 항목:
+            {
+                'track_id': int,
+                'current_x': float,      # 현재 위치 X (m)
+                'current_y': float,      # 현재 위치 Y (m)
+                'predicted_x': float,    # 예측 위치 X (m)
+                'predicted_y': float,    # 예측 위치 Y (m)
+                'speed_mps': float,      # 현재 이동 속도 (m/s)
+                'heading_rad': float,    # 이동 방향 (라디안, atan2)
+                'confidence': float,     # 트랙 신뢰도
+                'horizon_sec': float,    # 예측 지평선 (초)
+            }
+        """
+        fire_tracks = [
+            t for t in self.tracks.values()
+            if t.class_name == 'fire' and t.age > 3
+        ]
+
+        predictions = []
+        for track in fire_tracks:
+            speed = float(np.sqrt(track.vx**2 + track.vy**2))
+            heading = float(np.arctan2(track.vy, track.vx))
+
+            # 선형 외삽: x(t) = x0 + vx * dt
+            pred_x = track.x + track.vx * horizon_sec
+            pred_y = track.y + track.vy * horizon_sec
+
+            predictions.append({
+                'track_id': track.track_id,
+                'current_x': track.x,
+                'current_y': track.y,
+                'predicted_x': pred_x,
+                'predicted_y': pred_y,
+                'speed_mps': speed,
+                'heading_rad': heading,
+                'confidence': track.confidence,
+                'horizon_sec': horizon_sec,
+            })
+
+        return predictions
+
+    def get_evacuation_direction(
+        self,
+        robot_x: float,
+        robot_y: float,
+        safe_distance: float = 10.0,
+        horizon_sec: float = 300.0,
+    ) -> Optional[dict]:
+        """예측 화점 반대 방향으로 안전 구역 계산.
+
+        모든 예측 화점의 무게중심을 구하고,
+        현재 로봇 위치에서 무게중심 반대 방향으로
+        safe_distance 만큼 이동한 지점을 대피 목적지로 반환합니다.
+
+        Args:
+            robot_x: 로봇 현재 위치 X (m)
+            robot_y: 로봇 현재 위치 Y (m)
+            safe_distance: 대피 목적지까지의 거리 (m, 기본 10m)
+            horizon_sec: 화점 예측 지평선 (초)
+
+        Returns:
+            {
+                'safe_x': float,          # 대피 목적지 X (m)
+                'safe_y': float,          # 대피 목적지 Y (m)
+                'away_heading_rad': float, # 대피 방향 (라디안)
+                'fire_centroid_x': float, # 화점 무게중심 X
+                'fire_centroid_y': float, # 화점 무게중심 Y
+                'fire_count': int,        # 예측에 사용된 화점 수
+            }
+            화점이 없으면 None.
+        """
+        predictions = self.predict_fire_positions(horizon_sec)
+        if not predictions:
+            return None
+
+        # 예측 화점 무게중심 (신뢰도 가중 평균)
+        total_weight = sum(p['confidence'] for p in predictions)
+        if total_weight < 1e-6:
+            total_weight = len(predictions)
+            centroid_x = float(np.mean([p['predicted_x'] for p in predictions]))
+            centroid_y = float(np.mean([p['predicted_y'] for p in predictions]))
+        else:
+            centroid_x = sum(
+                p['predicted_x'] * p['confidence'] for p in predictions
+            ) / total_weight
+            centroid_y = sum(
+                p['predicted_y'] * p['confidence'] for p in predictions
+            ) / total_weight
+
+        # 로봇 → 화점 무게중심 벡터
+        dx = centroid_x - robot_x
+        dy = centroid_y - robot_y
+        dist_to_centroid = float(np.sqrt(dx**2 + dy**2))
+
+        if dist_to_centroid < 1e-3:
+            # 로봇이 화점 무게중심과 거의 동일 위치 → 임의 방향(북쪽)으로 대피
+            away_heading = float(np.pi / 2)
+        else:
+            # 화점 방향의 역방향
+            toward_heading = float(np.arctan2(dy, dx))
+            away_heading = float(toward_heading + np.pi)
+
+        # 대피 목적지 = 현재 위치 + 역방향으로 safe_distance
+        safe_x = robot_x + safe_distance * float(np.cos(away_heading))
+        safe_y = robot_y + safe_distance * float(np.sin(away_heading))
+
+        return {
+            'safe_x': safe_x,
+            'safe_y': safe_y,
+            'away_heading_rad': away_heading,
+            'fire_centroid_x': centroid_x,
+            'fire_centroid_y': centroid_y,
+            'fire_count': len(predictions),
         }
 
     def get_fire_spread_trend(self, window: int = 5) -> dict:

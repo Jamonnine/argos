@@ -227,7 +227,11 @@ run_cmd "ros2 launch argos_bringup multi_ugv.launch.py \
     use_sim_time:=false \
     robot_namespaces:='[ugv1, ugv2]' \
     &"
-UGV_LAUNCH_PID=$!
+if [[ "$DRY_RUN" == "true" ]]; then
+    UGV_LAUNCH_PID=0
+else
+    UGV_LAUNCH_PID=$!
+fi
 info "UGV launch PID: ${UGV_LAUNCH_PID}"
 
 sleep 3
@@ -338,7 +342,11 @@ info "4-4. 배터리 모니터링 루프 (백그라운드)"
         done
     done
 } &
-MONITOR_PID=$!
+if [[ "$DRY_RUN" == "true" ]]; then
+    MONITOR_PID=0
+else
+    MONITOR_PID=$!
+fi
 
 info "4-5. 임무 완료 대기 (최대 ${MISSION_TIMEOUT}초)"
 if [[ "$DRY_RUN" == "false" ]]; then
