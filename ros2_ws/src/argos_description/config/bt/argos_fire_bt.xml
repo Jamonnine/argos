@@ -1,0 +1,187 @@
+<?xml version="1.0"?>
+<!--
+  ARGOS 소방 정찰 BehaviorTree XML
+  ===================================
+  기반: nav2_bt_navigator/navigate_to_pose_w_replanning_and_recovery.xml
+  확장:
+    - replanning 주기 1.0Hz (RateController)
+    - recovery: Spin + BackUp + Wait
+    - 화점 감지 시 정지 + 오케스트레이터 보고 (커스텀 C++ 플러그인)
+
+  커스텀 노드 (argos_bt_nodes.so 필요):
+    - DetectFire: 열화상/FireAlert 토픽 기반 화점 감지 Condition
+    - ReportFire: orchestrator에 화점 좌표 Action 전송
+
+  기본 Nav2 노드 (nav2_behavior_tree 자동 포함):
+    - NavigateToPose, ComputePathToPose, FollowPath
+    - Spin, BackUp, Wait, RateController
+    - GoalReached, GloballyUpdatedGoal, GoalUpdated
+    - PlannerExceptionCondition, ControllerExceptionCondition
+
+  BehaviorTree.CPP v4 (BTCPP_format="4") 필수.
+-->
+<root BTCPP_format="4">
+  <BehaviorTree ID="ArgosFirePatrol">
+
+    <!--
+      최상위: ReactiveFallback
+      ├── [Branch A] 정상 탐색 루프 (배터리 OK + 화점 미감지)
+      └── [Branch B] 배터리 부족 시 홈으로 귀환
+    -->
+    <ReactiveFallback name="TopLevelFallback">
+
+      <!-- ======================================================
+           Branch A: 정상 탐색 루프
+           ReactiveSequence로 매 틱마다 조건 재평가:
+             1. 배터리 정상 여부 확인
+             2. (정상이면) 탐색 + 화점 감지 관리
+           ====================================================== -->
+      <ReactiveSequence name="NormalOperationSequence">
+
+        <!-- 배터리 정상 조건: IsBatteryCharging은 충전 중 SUCCESS.
+             여기서는 배터리 부족이 아닌 한 탐색 진행.
+             실제 배터리 토픽 연동은 커스텀 DetectLowBattery Condition으로 교체 권장.
+             현재는 항상 SUCCESS (배터리 모니터링 플러그인 미구현 시 대체) -->
+        <AlwaysSuccess name="BatteryCheckPlaceholder"/>
+
+        <!-- ---- 화점 감지 우선 분기 ---- -->
+        <!--
+          화점 감지 시 탐색을 즉시 중단하고 보고 → 그 자리에서 정지.
+          ReactiveFallback:
+            - DetectFire가 SUCCESS → ReportFire 실행 → 전체 SUCCESS (탐색 중단)
+            - DetectFire가 FAILURE → 하위 탐색 시퀀스 실행
+        -->
+        <ReactiveFallback name="FireCheckOrNavigate">
+
+          <!-- 화점 감지 + 보고 시퀀스 -->
+          <ReactiveSequence name="FireDetectionSequence">
+            <!--
+              DetectFire: 커스텀 Condition 노드 (argos_bt_nodes.so)
+              - 성공: fire_alerts 토픽에서 threshold K 이상 화점 수신
+              - threshold: 873.15 K = 600°C (초기 화재 기준)
+              - fire_pose: 감지된 화점 좌표 (블랙보드 출력)
+            -->
+            <DetectFire
+              threshold="873.15"
+              fire_pose="{fire_pose}"/>
+
+            <!--
+              ReportFire: 커스텀 Action 노드 (argos_bt_nodes.so)
+              - orchestrator_node의 /report_fire_alert Action Server 호출
+              - 화점 좌표(fire_pose)와 로봇 ID를 페이로드로 전송
+              - 전송 완료까지 RUNNING 유지 → SUCCESS 시 탐색 루프 재개 대기
+            -->
+            <ReportFire
+              fire_pose="{fire_pose}"
+              server_name="/report_fire_alert"
+              server_timeout="5000"/>
+          </ReactiveSequence>
+
+          <!-- 화점 미감지: 정상 탐색 시퀀스 실행 -->
+          <Sequence name="NavigationSequence">
+
+            <!--
+              GoalUpdated: 목표지점이 새로 업데이트됐는지 확인.
+              WaypointFollower 또는 오케스트레이터가 목표를 바꿨으면 SUCCESS.
+            -->
+            <ReactiveSequence name="NavigateWithReplanning">
+
+              <!--
+                RateController: 하위 노드를 1.0Hz 주기로만 실행 (replanning 빈도 제한).
+                매 틱마다 ComputePathToPose를 호출하면 과부하 발생 → 1Hz 제한.
+              -->
+              <RateController hz="1.0">
+                <Sequence name="ReplanningSequence">
+                  <!--
+                    GoalUpdated: 목표가 변경됐는지 확인.
+                    변경됐으면 SUCCESS → ComputePathToPose 재실행.
+                  -->
+                  <GoalUpdated/>
+                  <!--
+                    ComputePathToPose: GridBased(SmacPlanner2D) 전역 경로 계획.
+                    - goal: 현재 탐색 목표 (오케스트레이터 또는 WaypointFollower 주입)
+                    - path: 계산된 경로 (블랙보드 출력 → FollowPath에서 소비)
+                    - planner_id: "GridBased" (nav2_params.yaml GridBased 섹션 참조)
+                  -->
+                  <ComputePathToPose
+                    goal="{goal}"
+                    path="{path}"
+                    planner_id="GridBased"
+                    error_code_id="{compute_path_error_code}"/>
+                </Sequence>
+              </RateController>
+
+              <!--
+                FollowPath: MPPI Controller로 경로 추종.
+                - path: ComputePathToPose 출력 경로
+                - controller_id: "FollowPath" (nav2_params.yaml FollowPath 섹션 참조)
+              -->
+              <FollowPath
+                path="{path}"
+                controller_id="FollowPath"
+                goal_checker_id="goal_checker"
+                error_code_id="{follow_path_error_code}"/>
+
+            </ReactiveSequence>
+
+          </Sequence>
+        </ReactiveFallback>
+
+      </ReactiveSequence>
+
+      <!-- ======================================================
+           Branch B: 배터리 부족 / 오류 복구 시퀀스
+           ReactiveFallback 최하단 — Branch A 전체 FAILURE 시 실행
+           복구 순서: Spin → BackUp → Wait → NavigateToHome
+           ====================================================== -->
+      <Sequence name="RecoveryAndReturnSequence">
+
+        <!--
+          RecoveryNode: Nav2 내장 복구 래퍼.
+          - number_of_retries: 복구 시도 횟수 제한
+          복구 순서: Spin → BackUp → Wait
+        -->
+        <RecoveryNode number_of_retries="1" name="SpinRecovery">
+          <Sequence name="SpinAndFail">
+            <AlwaysFailure/>
+          </Sequence>
+          <Spin spin_dist="1.57" server_name="spin" server_timeout="10000" error_code_id="{spin_error_code}"/>
+        </RecoveryNode>
+
+        <RecoveryNode number_of_retries="1" name="BackUpRecovery">
+          <Sequence name="BackupAndFail">
+            <AlwaysFailure/>
+          </Sequence>
+          <BackUp
+            backup_dist="0.3"
+            backup_speed="0.1"
+            server_name="backup"
+            server_timeout="10000"
+            error_code_id="{backup_error_code}"/>
+        </RecoveryNode>
+
+        <RecoveryNode number_of_retries="1" name="WaitRecovery">
+          <Sequence name="WaitAndFail">
+            <AlwaysFailure/>
+          </Sequence>
+          <Wait wait_duration="3.0" server_name="wait" server_timeout="10000" error_code_id="{wait_error_code}"/>
+        </RecoveryNode>
+
+        <!--
+          NavigateToPose (귀환): 홈 포즈로 귀환.
+          - goal: 홈 포즈 (블랙보드에 "{home_pose}" 로 주입 필요)
+            오케스트레이터 또는 launch 파라미터로 home_pose 설정.
+          - server_name: navigate_to_pose (NavigateToPoseNavigator)
+        -->
+        <NavigateToPose
+          goal="{home_pose}"
+          server_name="navigate_to_pose"
+          server_timeout="60000"
+          error_code_id="{navigate_to_home_error_code}"/>
+
+      </Sequence>
+
+    </ReactiveFallback>
+
+  </BehaviorTree>
+</root>

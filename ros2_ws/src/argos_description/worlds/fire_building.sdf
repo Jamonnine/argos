@@ -1,0 +1,680 @@
+<?xml version="1.0" ?>
+<!--
+  ARGOS 화재 현장 월드 (fire_building)
+  =====================================
+  Phase B 화재 탐지·진압 시뮬레이션 전용 환경.
+  indoor_test.sdf 기반 10×8m 실내 (3개 방 + 복도) 구조 유지.
+  화점 2개 + 연기 파티클 + 열화상 배경 + 추가 장애물.
+
+  레이아웃 (위에서 내려다봄):
+  ┌─────────┬───┬─────────┐
+  │  불꽃A  │   │  불꽃B  │
+  │  방 A   │복 │  방 B   │ ← 화점 2개 (A: 소형 600K, B: 대형 900K)
+  │  (3×3)  │도 │  (3×3)  │
+  │         │   │         │
+  ├────┐    │   │    ┌────┤
+  │    └────┘   └────┘    │
+  │                       │
+  │       방 C (5×3)      │ ← 추가 장애물 (쓰러진 잔해)
+  └───────────────────────┘
+  0,0 = 좌하단 코너
+
+  화점 좌표:
+  - fire_source_a: (1.5, 6.8) — 방 A 내부, 소형 화재 (600K)
+  - fire_source_b: (8.5, 6.5) — 방 B 내부, 대형 화재 (900K)
+
+  파티클 pitch -90도(=rad -1.5708) 이유:
+  Gazebo ParticleEmitter 기본 분출 방향은 +X 방향.
+  모델 자체를 pitch=-90도 회전하면 분출 방향이 +Z (위쪽)으로 전환.
+-->
+<sdf version="1.9">
+  <world name="fire_building">
+
+    <!-- ===================== 필수 플러그인 ===================== -->
+
+    <!-- 물리 엔진 -->
+    <plugin filename="gz-sim-physics-system"
+            name="gz::sim::systems::Physics"/>
+
+    <!-- 사용자 명령 (GUI 드래그, 스폰 등) -->
+    <plugin filename="gz-sim-user-commands-system"
+            name="gz::sim::systems::UserCommands"/>
+
+    <!-- 씬 브로드캐스터 (ROS 2 bridge용) -->
+    <plugin filename="gz-sim-scene-broadcaster-system"
+            name="gz::sim::systems::SceneBroadcaster"/>
+
+    <!-- 센서 시스템 (열화상·카메라·라이다) -->
+    <plugin filename="gz-sim-sensors-system"
+            name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+
+    <!-- 충돌 감지 -->
+    <plugin filename="gz-sim-contact-system"
+            name="gz::sim::systems::Contact"/>
+
+    <!-- IMU 시스템 -->
+    <plugin filename="gz-sim-imu-system"
+            name="gz::sim::systems::Imu"/>
+
+    <!-- 파티클 에미터 시스템 (연기·불꽃 렌더링 필수) -->
+    <!-- 이 선언 없으면 <particle_emitter> 블록 전체 무시됨 -->
+    <plugin filename="gz-sim-particle-emitter-system"
+            name="gz::sim::systems::ParticleEmitter"/>
+
+    <!-- ===================== 환경 설정 ===================== -->
+
+    <!-- 열화상 카메라 배경 기준 온도 (20°C) -->
+    <!-- 이 값보다 높은 온도를 가진 모델이 열화상에 밝게 표시됨 -->
+    <atmosphere type="adiabatic">
+      <temperature>293.15</temperature>
+    </atmosphere>
+
+    <!-- 물리 엔진 설정 -->
+    <physics name="default_physics" type="ode">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+      <real_time_update_rate>1000</real_time_update_rate>
+    </physics>
+
+    <!-- ===================== 조명 ===================== -->
+
+    <!-- 디렉셔널 라이트 — 어두운 실내 (화재 현장 분위기) -->
+    <!-- indoor_test.sdf 대비 diffuse 0.8→0.15로 대폭 감소 -->
+    <light type="directional" name="dim_ambient">
+      <cast_shadows>false</cast_shadows>
+      <pose>5 4 10 0 0 0</pose>
+      <diffuse>0.15 0.12 0.10 1</diffuse>
+      <specular>0.05 0.04 0.03 1</specular>
+      <attenuation>
+        <range>1000</range>
+        <constant>0.9</constant>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <!-- 화점 A 근처 포인트 라이트 (주황빛, 소형 화재) -->
+    <light type="point" name="fire_light_a">
+      <cast_shadows>false</cast_shadows>
+      <pose>1.5 6.8 1.2 0 0 0</pose>
+      <diffuse>1.0 0.5 0.1 1</diffuse>
+      <specular>0.8 0.3 0.0 1</specular>
+      <attenuation>
+        <range>4</range>
+        <constant>0.3</constant>
+        <linear>0.3</linear>
+        <quadratic>0.1</quadratic>
+      </attenuation>
+    </light>
+
+    <!-- 화점 B 근처 포인트 라이트 (주황빛, 대형 화재 — 더 밝고 넓음) -->
+    <light type="point" name="fire_light_b">
+      <cast_shadows>false</cast_shadows>
+      <pose>8.5 6.5 1.5 0 0 0</pose>
+      <diffuse>1.0 0.4 0.05 1</diffuse>
+      <specular>0.9 0.25 0.0 1</specular>
+      <attenuation>
+        <range>6</range>
+        <constant>0.2</constant>
+        <linear>0.2</linear>
+        <quadratic>0.05</quadratic>
+      </attenuation>
+    </light>
+
+    <!-- ===================== 바닥 ===================== -->
+
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>20 20</size>
+            </plane>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>20 20</size>
+            </plane>
+          </geometry>
+          <material>
+            <!-- 어두운 바닥 (그을음 표현) -->
+            <ambient>0.35 0.33 0.30 1</ambient>
+            <diffuse>0.35 0.33 0.30 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ===================== 외벽 ===================== -->
+    <!-- 벽 두께 0.15m, 높이 2.5m — indoor_test.sdf 동일 -->
+
+    <!-- 남쪽 외벽 -->
+    <model name="wall_south">
+      <static>true</static>
+      <pose>5 0 1.25 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>10 0.15 2.5</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>10 0.15 2.5</size></box></geometry>
+          <material>
+            <ambient>0.75 0.72 0.68 1</ambient>
+            <diffuse>0.75 0.72 0.68 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 북쪽 외벽 -->
+    <model name="wall_north">
+      <static>true</static>
+      <pose>5 8 1.25 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>10 0.15 2.5</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>10 0.15 2.5</size></box></geometry>
+          <material>
+            <!-- 화재 그을음으로 어두운 벽 색상 -->
+            <ambient>0.60 0.55 0.50 1</ambient>
+            <diffuse>0.60 0.55 0.50 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 서쪽 외벽 -->
+    <model name="wall_west">
+      <static>true</static>
+      <pose>0 4 1.25 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.15 8 2.5</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.15 8 2.5</size></box></geometry>
+          <material>
+            <ambient>0.75 0.72 0.68 1</ambient>
+            <diffuse>0.75 0.72 0.68 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 동쪽 외벽 -->
+    <model name="wall_east">
+      <static>true</static>
+      <pose>10 4 1.25 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.15 8 2.5</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.15 8 2.5</size></box></geometry>
+          <material>
+            <ambient>0.75 0.72 0.68 1</ambient>
+            <diffuse>0.75 0.72 0.68 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ===================== 내벽 ===================== -->
+
+    <!-- 방A-복도 구분 벽 (좌측 세로벽, 하단: y=5~5.6) -->
+    <model name="wall_a_corridor_lower">
+      <static>true</static>
+      <pose>3 5.3 1.25 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.15 0.6 2.5</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.15 0.6 2.5</size></box></geometry>
+          <material>
+            <ambient>0.70 0.67 0.63 1</ambient>
+            <diffuse>0.70 0.67 0.63 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 방A-복도 구분 벽 (상단: y=6.8~8) -->
+    <model name="wall_a_corridor_upper">
+      <static>true</static>
+      <pose>3 7.4 1.25 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.15 1.2 2.5</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.15 1.2 2.5</size></box></geometry>
+          <material>
+            <ambient>0.70 0.67 0.63 1</ambient>
+            <diffuse>0.70 0.67 0.63 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 방B-복도 구분 벽 (우측 세로벽, 하단) -->
+    <model name="wall_b_corridor_lower">
+      <static>true</static>
+      <pose>7 5.3 1.25 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.15 0.6 2.5</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.15 0.6 2.5</size></box></geometry>
+          <material>
+            <ambient>0.70 0.67 0.63 1</ambient>
+            <diffuse>0.70 0.67 0.63 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 방B-복도 구분 벽 (상단) -->
+    <model name="wall_b_corridor_upper">
+      <static>true</static>
+      <pose>7 7.4 1.25 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.15 1.2 2.5</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.15 1.2 2.5</size></box></geometry>
+          <material>
+            <ambient>0.70 0.67 0.63 1</ambient>
+            <diffuse>0.70 0.67 0.63 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 복도-방C 구분 가로벽 (좌측: x=0~4.4) -->
+    <model name="wall_corridor_c_left">
+      <static>true</static>
+      <pose>2.2 5 1.25 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>4.4 0.15 2.5</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>4.4 0.15 2.5</size></box></geometry>
+          <material>
+            <ambient>0.70 0.67 0.63 1</ambient>
+            <diffuse>0.70 0.67 0.63 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 복도-방C 구분 가로벽 (우측: x=5.6~10) -->
+    <model name="wall_corridor_c_right">
+      <static>true</static>
+      <pose>7.8 5 1.25 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>4.4 0.15 2.5</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>4.4 0.15 2.5</size></box></geometry>
+          <material>
+            <ambient>0.70 0.67 0.63 1</ambient>
+            <diffuse>0.70 0.67 0.63 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ===================== 화점 모델 ===================== -->
+
+    <!--
+      fire_source_a — 방 A 소형 화재
+      위치: (1.5, 6.8) 방 A 내부
+      온도: 873.15 K (600°C) — 초기 화재 단계
+      시각: 빨간 박스 0.3m
+    -->
+    <model name="fire_source_a">
+      <static>true</static>
+      <pose>1.5 6.8 0.15 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.3 0.3 0.3</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box><size>0.3 0.3 0.3</size></box>
+          </geometry>
+          <material>
+            <!-- 빨간 화점 시각 표시 -->
+            <ambient>1.0 0.05 0.05 1</ambient>
+            <diffuse>1.0 0.05 0.05 1</diffuse>
+            <emissive>0.8 0.0 0.0 1</emissive>
+          </material>
+        </visual>
+      </link>
+      <!-- 열화상 카메라에 600°C = 873.15K 시그니처 출력 -->
+      <plugin filename="gz-sim-thermal-system"
+              name="gz::sim::systems::Thermal">
+        <temperature>873.15</temperature>
+      </plugin>
+    </model>
+
+    <!--
+      fire_source_b — 방 B 대형 화재
+      위치: (8.5, 6.5) 방 B 내부
+      온도: 1173.15 K (900°C) — 성장기 화재 (더 강한 열 시그니처)
+      시각: 빨간 박스 0.3m (소형과 동일 크기, 연기로 구분)
+    -->
+    <model name="fire_source_b">
+      <static>true</static>
+      <pose>8.5 6.5 0.15 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.3 0.3 0.3</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box><size>0.3 0.3 0.3</size></box>
+          </geometry>
+          <material>
+            <!-- 더 강한 불꽃색 (옅은 주황-빨강) -->
+            <ambient>1.0 0.08 0.0 1</ambient>
+            <diffuse>1.0 0.08 0.0 1</diffuse>
+            <emissive>1.0 0.05 0.0 1</emissive>
+          </material>
+        </visual>
+      </link>
+      <!-- 열화상 카메라에 900°C = 1173.15K 시그니처 출력 -->
+      <plugin filename="gz-sim-thermal-system"
+              name="gz::sim::systems::Thermal">
+        <temperature>1173.15</temperature>
+      </plugin>
+    </model>
+
+    <!-- ===================== 연기 파티클 (화점 A) ===================== -->
+
+    <!--
+      smoke_a — 방 A 화점 연기 (소형, 연기 적음)
+      pitch=-1.5708: +X 기본 분출 방향 → +Z(위) 로 전환
+      rate=20, lifetime=3 (요구사항 준수)
+      색상: 회색 (0.4, 0.4, 0.4, 0.8)
+    -->
+    <model name="smoke_a">
+      <static>true</static>
+      <pose>1.5 6.8 0.35 0 -1.5708 0</pose>
+      <link name="smoke_link">
+        <particle_emitter name="smoke_emitter_a" type="box">
+          <!-- 파티클 활성화 -->
+          <emitting>true</emitting>
+          <!-- 발생 영역 (화점 크기에 맞춤) -->
+          <size>0.25 0.25 0</size>
+          <!-- 개별 파티클 크기 -->
+          <particle_size>0.35 0.35 0.35</particle_size>
+          <!-- 초당 파티클 수 (소형 화재) -->
+          <rate>20</rate>
+          <!-- 파티클 수명 (초) -->
+          <lifetime>3</lifetime>
+          <!-- 상승 속도 범위 -->
+          <min_velocity>0.4</min_velocity>
+          <max_velocity>0.8</max_velocity>
+          <!-- 크기 증가율 (연기가 퍼지는 효과) -->
+          <scale_rate>0.9</scale_rate>
+          <!-- 회색 연기 (요구사항: 0.4, 0.4, 0.4, 0.8) -->
+          <material>
+            <diffuse>0.4 0.4 0.4 0.8</diffuse>
+            <specular>0.2 0.2 0.2 0.5</specular>
+          </material>
+          <!-- 라이다 산란 비율: 연기 탐지 시뮬레이션 (0.65 = 중간 산란) -->
+          <particle_scatter_ratio>0.65</particle_scatter_ratio>
+        </particle_emitter>
+      </link>
+    </model>
+
+    <!--
+      flame_a — 방 A 불꽃 파티클 (소형, 짧은 수명)
+      연기보다 낮은 위치에서 주황 불꽃 분출
+    -->
+    <model name="flame_a">
+      <static>true</static>
+      <pose>1.5 6.8 0.25 0 -1.5708 0</pose>
+      <link name="flame_link">
+        <particle_emitter name="flame_emitter_a" type="box">
+          <emitting>true</emitting>
+          <size>0.20 0.20 0</size>
+          <particle_size>0.15 0.15 0.15</particle_size>
+          <rate>25</rate>
+          <!-- 불꽃은 짧게 소멸 -->
+          <lifetime>0.8</lifetime>
+          <min_velocity>0.6</min_velocity>
+          <max_velocity>1.2</max_velocity>
+          <scale_rate>0.2</scale_rate>
+          <!-- 주황 불꽃 -->
+          <material>
+            <diffuse>1.0 0.5 0.05 0.9</diffuse>
+            <specular>1.0 0.7 0.1 0.8</specular>
+          </material>
+          <!-- 불꽃은 센서 영향 최소화 -->
+          <particle_scatter_ratio>0.1</particle_scatter_ratio>
+        </particle_emitter>
+      </link>
+    </model>
+
+    <!-- ===================== 연기 파티클 (화점 B) ===================== -->
+
+    <!--
+      smoke_b — 방 B 화점 연기 (대형, 연기 많음)
+      rate=40, lifetime=5 — 소형 대비 2배 밀도
+      particle_size 더 크고, scale_rate 높여 빠르게 퍼짐
+    -->
+    <model name="smoke_b">
+      <static>true</static>
+      <pose>8.5 6.5 0.35 0 -1.5708 0</pose>
+      <link name="smoke_link">
+        <particle_emitter name="smoke_emitter_b" type="box">
+          <emitting>true</emitting>
+          <size>0.40 0.40 0</size>
+          <!-- 대형 화재: 파티클 크기 크게 -->
+          <particle_size>0.55 0.55 0.55</particle_size>
+          <!-- 대형 화재: 발생률 2배 -->
+          <rate>40</rate>
+          <!-- 대형 화재: 수명 길게 (연기가 오래 머묾) -->
+          <lifetime>5</lifetime>
+          <min_velocity>0.5</min_velocity>
+          <max_velocity>1.2</max_velocity>
+          <!-- 빠르게 퍼지는 연기 -->
+          <scale_rate>1.2</scale_rate>
+          <!-- 짙은 회색 연기 (대형 화재) — 요구사항 색상 기준 동일 -->
+          <material>
+            <diffuse>0.4 0.4 0.4 0.8</diffuse>
+            <specular>0.15 0.15 0.15 0.6</specular>
+          </material>
+          <!-- 라이다 산란 높게 (짙은 연기) -->
+          <particle_scatter_ratio>0.85</particle_scatter_ratio>
+        </particle_emitter>
+      </link>
+    </model>
+
+    <!--
+      flame_b — 방 B 불꽃 파티클 (대형, 높은 발생률)
+    -->
+    <model name="flame_b">
+      <static>true</static>
+      <pose>8.5 6.5 0.28 0 -1.5708 0</pose>
+      <link name="flame_link">
+        <particle_emitter name="flame_emitter_b" type="box">
+          <emitting>true</emitting>
+          <size>0.35 0.35 0</size>
+          <particle_size>0.25 0.25 0.25</particle_size>
+          <!-- 대형 화재: 불꽃 발생률 높음 -->
+          <rate>50</rate>
+          <lifetime>1.2</lifetime>
+          <min_velocity>0.8</min_velocity>
+          <max_velocity>2.0</max_velocity>
+          <scale_rate>0.35</scale_rate>
+          <!-- 주황-노랑 불꽃 (고온) -->
+          <material>
+            <diffuse>1.0 0.55 0.0 0.95</diffuse>
+            <specular>1.0 0.8 0.2 0.9</specular>
+          </material>
+          <particle_scatter_ratio>0.1</particle_scatter_ratio>
+        </particle_emitter>
+      </link>
+    </model>
+
+    <!-- ===================== 열원 (indoor_test 호환) ===================== -->
+
+    <!-- 방 A 벽면 복사열 (200°C = 473.15K) — 화재 확산 표현 -->
+    <model name="heat_wall_a">
+      <static>true</static>
+      <pose>0.5 7.5 1.0 0 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <box><size>0.8 0.1 1.5</size></box>
+          </geometry>
+          <material>
+            <ambient>0.8 0.4 0.1 1</ambient>
+            <diffuse>0.8 0.4 0.1 1</diffuse>
+          </material>
+        </visual>
+      </link>
+      <plugin filename="gz-sim-thermal-system"
+              name="gz::sim::systems::Thermal">
+        <temperature>473.15</temperature>
+      </plugin>
+    </model>
+
+    <!-- 복도 온수 파이프 (60°C = 333.15K) — 오탐 테스트용 -->
+    <model name="hot_pipe_corridor">
+      <static>true</static>
+      <pose>5.0 7.0 0.3 0 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <cylinder>
+              <radius>0.05</radius>
+              <length>3.0</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.6 0.6 0.6 1</ambient>
+            <diffuse>0.6 0.6 0.6 1</diffuse>
+          </material>
+        </visual>
+      </link>
+      <plugin filename="gz-sim-thermal-system"
+              name="gz::sim::systems::Thermal">
+        <temperature>333.15</temperature>
+      </plugin>
+    </model>
+
+    <!-- ===================== 장애물 ===================== -->
+
+    <!-- 방 C 중앙 테이블 (indoor_test 동일) -->
+    <model name="table_c">
+      <static>true</static>
+      <pose>5 2.5 0.4 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>1.2 0.6 0.8</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>1.2 0.6 0.8</size></box></geometry>
+          <material>
+            <ambient>0.45 0.28 0.10 1</ambient>
+            <diffuse>0.45 0.28 0.10 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 방 A 쓰러진 선반 (화점 A 옆, 화재 원인 장애물) -->
+    <model name="debris_shelf_a">
+      <static>true</static>
+      <pose>1.5 7 0.3 0 0 0.3</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>1.5 0.4 0.6</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>1.5 0.4 0.6</size></box></geometry>
+          <material>
+            <!-- 그을린 선반색 -->
+            <ambient>0.30 0.25 0.20 1</ambient>
+            <diffuse>0.30 0.25 0.20 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 방 B 쓰러진 의자 (화점 B 근처) -->
+    <model name="debris_chair_b">
+      <static>true</static>
+      <pose>8.0 7.2 0.2 0 0.4 0.6</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.45 0.45 0.4</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.45 0.45 0.4</size></box></geometry>
+          <material>
+            <ambient>0.25 0.25 0.35 1</ambient>
+            <diffuse>0.25 0.25 0.35 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 방 C 쓰러진 잔해 박스 (로봇 경로 방해용) -->
+    <model name="debris_box_c">
+      <static>true</static>
+      <pose>3.0 2.0 0.25 0 0 0.8</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.6 0.4 0.5</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.6 0.4 0.5</size></box></geometry>
+          <material>
+            <ambient>0.40 0.38 0.32 1</ambient>
+            <diffuse>0.40 0.38 0.32 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 복도 무너진 천장 잔해 (Nav2 장애물 다양성 확보) -->
+    <model name="debris_ceiling_corridor">
+      <static>true</static>
+      <pose>5.0 6.2 0.15 0 0 0.2</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.8 0.5 0.3</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.8 0.5 0.3</size></box></geometry>
+          <material>
+            <!-- 회백색 콘크리트 잔해 -->
+            <ambient>0.65 0.63 0.60 1</ambient>
+            <diffuse>0.65 0.63 0.60 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+  </world>
+</sdf>

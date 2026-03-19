@@ -35,8 +35,15 @@ bt_navigator:
     # frame_prefix 방식: <robot_namespace>/ → argos1/ 런타임 치환 (argos_nav2_bringup ReplaceString)
     robot_base_frame: <robot_namespace>/base_footprint
     transform_tolerance: 0.5
-    # BT XML: 빈 문자열 제거 — Nav2 기본 BT 사용
+    # 커스텀 BT XML (소방 정찰 시나리오) — Phase B-2에서 구현
+    # 주의: 빈 문자열("")로 설정하면 "Empty Tree" 에러 → 값이 없으면 파라미터 자체 생략
+    # 파일: config/bt/argos_fire_bt.xml (생성 완료)
+    # 활성화 조건: argos_bt_nodes.so 빌드 완료 후
+    # default_nav_to_pose_bt_xml: "$(find-pkg-share argos_description)/config/bt/argos_fire_bt.xml"
     always_reload_bt_xml: false
+    # 커스텀 BT 플러그인 (argos_bt_nodes.so) — C++ DetectFire, ReportFire 구현 후 활성화
+    # plugin_lib_names:
+    #   - argos_bt_nodes
     navigators: ['navigate_to_pose', 'navigate_through_poses']
     navigate_to_pose:
       plugin: "nav2_bt_navigator::NavigateToPoseNavigator"
