@@ -1,0 +1,41 @@
+# ARGOS Phase D — PX4 SITL 격리 환경
+# Jazzy + gz_bridge 클락 타임아웃 버그(Issue #24159) 우회 전략:
+# PX4 레이어를 Docker 내 Humble로 분리, UGV 스택(Jazzy)과 독립 실행
+#
+# 실행: docker compose up -d
+# 종료: docker compose down
+# 로그: docker compose logs -f px4-sitl
+
+services:
+  # PX4 SITL + Gazebo Harmonic (Ubuntu 22.04 기반)
+  px4-sitl:
+    build:
+      context: .
+      dockerfile: Dockerfile.px4
+    container_name: argos-px4-sitl
+    environment:
+      - PX4_SIM_MODEL=gz_x500          # X500 쿼드콥터 (ARGOS 기본 드론)
+      - PX4_GZ_STANDALONE=1            # Gazebo를 별도 컨테이너로 분리하지 않고 내장
+      - PX4_HOME_LAT=35.8714           # 대구 기준 위경도 (시뮬 홈 포지션)
+      - PX4_HOME_LON=128.6014
+      - PX4_HOME_ALT=0.0
+    # host 네트워크: uXRCE-DDS Agent UDP 8888 → 호스트 ROS2 노드 직접 접근
+    network_mode: host
+    restart: unless-stopped
+
+  # Micro XRCE-DDS Agent: PX4 → ROS2 유일 공식 브릿지 (UDP 8888)
+  # PX4 v1.16+ 에서 FastRTPS(px4_ros_com)는 완전 폐기됨
+  uxrce-dds:
+    image: ros:humble
+    container_name: argos-uxrce-dds-agent
+    command: >
+      bash -c "
+        apt-get update -q &&
+        apt-get install -y -q ros-humble-micro-xrce-dds-agent &&
+        source /opt/ros/humble/setup.bash &&
+        MicroXRCEAgent udp4 -p 8888
+      "
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      - px4-sitl
