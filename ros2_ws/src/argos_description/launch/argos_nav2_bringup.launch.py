@@ -58,7 +58,13 @@ def generate_launch_description():
         'waypoint_follower',
     ]
 
-    remappings = [('/tf', 'tf'), ('/tf_static', 'tf_static')]
+    # TF remapping 제거 (2026-03-19): 모든 노드가 글로벌 /tf 사용
+    # 이유: gz_ros2_control(DDC)과 slam_toolbox가 글로벌 /tf에 발행하지만,
+    #   Nav2 노드의 [('/tf','tf')] remapping이 네임스페이스에서 /argos1/tf로 변환
+    #   → frontier_explorer의 TF 버퍼가 비어있음 → 탐색 실패
+    # frame_prefix로 프레임 이름 자체가 이미 구분(argos1/base_footprint)되므로
+    # 네임스페이스별 TF 토픽 분리는 불필요
+    remappings = []
 
     # 네임스페이스 치환 (멀티로봇 대응)
     # <robot_namespace>/ → argos1/ (멀티로봇) 또는 빈 문자열 (단일로봇)
@@ -129,8 +135,7 @@ def generate_launch_description():
                 parameters=[configured_params,
                             {'use_sim_time': use_sim_time,
                              'use_lifecycle_manager': True}],
-                remappings=[('/scan', 'scan'), ('/tf', 'tf'), ('/tf_static', 'tf_static'),
-                            ('/map', 'map')],
+                remappings=[('/scan', 'scan'), ('/map', 'map')],
             ),
             # Nav2 Navigation Nodes (docking 제외)
             SetParameter('use_sim_time', use_sim_time),

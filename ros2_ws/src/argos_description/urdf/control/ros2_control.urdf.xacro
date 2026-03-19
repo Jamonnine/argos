@@ -68,8 +68,7 @@
           <parameters>$(find argos_description)/config/controllers.yaml</parameters>
           <ros>
             <namespace>${namespace}</namespace>
-            <remapping>/tf:=tf</remapping>
-            <remapping>/tf_static:=tf_static</remapping>
+            <!-- TF remapping 제거: 글로벌 /tf 사용 (frame_prefix로 프레임 구분) -->
             <!-- diff_drive_controller 토픽을 표준 이름으로 직접 연결 (relay 불필요) -->
             <remapping>diff_drive_controller/cmd_vel:=cmd_vel</remapping>
             <remapping>diff_drive_controller/odom:=odom</remapping>
