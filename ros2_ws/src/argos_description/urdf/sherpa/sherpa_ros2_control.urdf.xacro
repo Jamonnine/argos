@@ -1,0 +1,120 @@
+<?xml version="1.0"?>
+<!--
+  HR-셰르파 ros2_control 하드웨어 인터페이스
+  ==========================================
+  6×6 인휠 독립 구동 전용 컨트롤러 정의.
+  기존 argos UGV(4WD)의 ros2_control.urdf.xacro 패턴 확장.
+
+  설계 결정:
+  - 6개 바퀴 모두 독립 velocity command/state interface
+  - gz_ros2_control 플러그인 (Gazebo Harmonic 호환)
+  - namespace 파라미터: 멀티로봇 배포 시 토픽 충돌 방지
+  - remapping: diff_drive_controller 토픽 → 표준 cmd_vel / odom
+  - sherpa_controllers.yaml 별도 관리 (UGV와 분리)
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:macro name="sherpa_ros2_control" params="use_sim:='true' namespace:=''">
+
+    <!-- ============================================================ -->
+    <!--  ros2_control 시스템 정의                                       -->
+    <!-- ============================================================ -->
+    <ros2_control name="SherpaSystem" type="system">
+      <hardware>
+        <xacro:if value="${use_sim}">
+          <!-- Gazebo Harmonic: gz_ros2_control 플러그인 -->
+          <plugin>gz_ros2_control/GazeboSimSystem</plugin>
+        </xacro:if>
+        <xacro:unless value="${use_sim}">
+          <!-- 실제 하드웨어 전환 시 인휠 모터 드라이버 인터페이스 -->
+          <plugin>sherpa_hardware/SherpaInWheelInterface</plugin>
+        </xacro:unless>
+      </hardware>
+
+      <!-- 앞축 좌측 바퀴 -->
+      <joint name="front_left_wheel_joint">
+        <command_interface name="velocity">
+          <!-- 2톤급 차량: 최대 속도 제한 (약 5.5 rad/s ≈ 7 km/h) -->
+          <param name="min">-5.5</param>
+          <param name="max">5.5</param>
+        </command_interface>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+
+      <!-- 앞축 우측 바퀴 -->
+      <joint name="front_right_wheel_joint">
+        <command_interface name="velocity">
+          <param name="min">-5.5</param>
+          <param name="max">5.5</param>
+        </command_interface>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+
+      <!-- 중간축 좌측 바퀴 -->
+      <joint name="mid_left_wheel_joint">
+        <command_interface name="velocity">
+          <param name="min">-5.5</param>
+          <param name="max">5.5</param>
+        </command_interface>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+
+      <!-- 중간축 우측 바퀴 -->
+      <joint name="mid_right_wheel_joint">
+        <command_interface name="velocity">
+          <param name="min">-5.5</param>
+          <param name="max">5.5</param>
+        </command_interface>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+
+      <!-- 뒤축 좌측 바퀴 -->
+      <joint name="rear_left_wheel_joint">
+        <command_interface name="velocity">
+          <param name="min">-5.5</param>
+          <param name="max">5.5</param>
+        </command_interface>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+
+      <!-- 뒤축 우측 바퀴 -->
+      <joint name="rear_right_wheel_joint">
+        <command_interface name="velocity">
+          <param name="min">-5.5</param>
+          <param name="max">5.5</param>
+        </command_interface>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+
+    </ros2_control>
+
+    <!-- ============================================================ -->
+    <!--  Gazebo 시뮬레이션 전용: gz_ros2_control 플러그인 로드           -->
+    <!-- ============================================================ -->
+    <xacro:if value="${use_sim}">
+      <gazebo>
+        <plugin filename="gz_ros2_control-system"
+                name="gz_ros2_control::GazeboSimROS2ControlPlugin">
+          <!-- 셰르파 전용 컨트롤러 설정 파일 (UGV controllers.yaml과 분리) -->
+          <parameters>$(find argos_description)/config/sherpa_controllers.yaml</parameters>
+          <ros>
+            <!-- 멀티로봇 지원: namespace 파라미터로 토픽 분리 -->
+            <namespace>${namespace}</namespace>
+            <!-- TF는 글로벌 /tf 사용 (frame_prefix로 로봇별 프레임 구분) -->
+            <!-- diff_drive_controller 내부 토픽 → 표준 ROS2 네이밍으로 remapping -->
+            <remapping>diff_drive_controller/cmd_vel:=cmd_vel</remapping>
+            <remapping>diff_drive_controller/odom:=odom</remapping>
+          </ros>
+        </plugin>
+      </gazebo>
+    </xacro:if>
+
+  </xacro:macro>
+
+</robot>

@@ -1,0 +1,66 @@
+# HR-셰르파 6WD 컨트롤러 설정
+# =================================
+# diff_drive_controller: 6WD 스킵 스티어
+# 좌/우 각 3개 바퀴를 단일 속도 명령으로 구동 — diff_drive와 동일 인터페이스.
+#
+# 와일드카드(/**): 멀티로봇 네임스페이스 지원.
+# /sherpa1/controller_manager, /sherpa2/controller_manager 모두 이 설정 사용.
+#
+# HR-셰르파 제원:
+#   - 중량 2.0톤, 최고속도 50km/h(13.9m/s), 실내 운용 5km/h(1.4m/s)
+#   - 소방호스 연결 운용 → 후진·급회전 제한 필수
+
+/**/controller_manager:
+  ros__parameters:
+    update_rate: 50  # Hz
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    diff_drive_controller:
+      type: diff_drive_controller/DiffDriveController
+
+/**/diff_drive_controller:
+  ros__parameters:
+    # 6WD: 좌측 3개, 우측 3개 (front → mid → rear 순)
+    left_wheel_names:
+      - "front_left_wheel_joint"
+      - "mid_left_wheel_joint"
+      - "rear_left_wheel_joint"
+    right_wheel_names:
+      - "front_right_wheel_joint"
+      - "mid_right_wheel_joint"
+      - "rear_right_wheel_joint"
+
+    # 바퀴 간격 (좌-우 중심 거리)
+    wheel_separation: 2.0   # m
+
+    # 바퀴 반경
+    wheel_radius: 0.35      # m
+
+    # 속도 제한
+    linear.x.max_velocity: 1.4    # m/s (실내 운용 5km/h 기준)
+    linear.x.min_velocity: -0.5   # m/s — 후진 제한 (소방호스 꼬임 방지)
+    angular.z.max_velocity: 0.5   # rad/s — 회전 제한 (2.0톤 관성 + 호스 꺾임 방지)
+
+    # 가속도 제한 (2.0톤 차체: 급기동 방지, 호스 장력 충격 흡수)
+    linear.x.max_acceleration: 0.5   # m/s² — 4WD(1.0)의 절반으로 보수 운용
+    angular.z.max_acceleration: 1.0  # rad/s²
+
+    # 오도메트리
+    publish_rate: 50.0
+    odom_frame_id: "odom"
+    base_frame_id: "base_footprint"
+    pose_covariance_diagonal: [0.001, 0.001, 0.001, 0.001, 0.001, 0.01]
+    twist_covariance_diagonal: [0.001, 0.001, 0.001, 0.001, 0.001, 0.01]
+
+    # 타임아웃 (명령 없으면 정지 — 중량 차체이므로 기본값 유지)
+    cmd_vel_timeout: 0.5
+
+    # TF 퍼블리시
+    publish_odom: true
+    publish_odom_tf: true
+    publish_wheel_data: true
+
+    # ROS 2 Jazzy: TwistStamped 입력 (TwistStamped 교훈 적용)
+    use_stamped_vel: true

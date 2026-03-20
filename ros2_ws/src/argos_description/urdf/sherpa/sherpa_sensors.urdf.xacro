@@ -1,0 +1,522 @@
+<?xml version="1.0"?>
+<!--
+  HR-셰르파 센서 패키지
+  =====================
+  NFRI 소방 현장 운용 기준 센서 구성.
+
+  장착 센서 목록:
+  1. SWIR 열화상 (1,550nm): 연기 투과 화점 탐지
+  2. LWIR 열화상 (8,000~14,000nm): 온도 분포 전체 화면
+  3. LiDAR (360°, 10m): 주변 장애물·공간 지도
+  4. RGB 카메라 (640×480): 육안 확인·영상 기록
+  5. IMU (250Hz): 자세 추정·경사 지면 보정
+  6. 레이더 (depth_camera로 근사, 50m): 연기 투시 거리 측정
+
+  모두 sensor_platform_link에 마운트.
+  개별 매크로로 분리 → 센서 탈착 시 include 제거만으로 처리 가능.
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- ============================================================ -->
+  <!--  공통 관성 (소형 센서 모듈 기준)                                  -->
+  <!-- ============================================================ -->
+  <xacro:macro name="sensor_inertia_small">
+    <inertial>
+      <mass value="0.3"/>
+      <inertia ixx="0.00001" ixy="0" ixz="0"
+               iyy="0.00001" iyz="0"
+               izz="0.00001"/>
+    </inertial>
+  </xacro:macro>
+
+  <!-- ============================================================ -->
+  <!--  SWIR 열화상 카메라 (Short-Wave Infrared, 1,550nm)             -->
+  <!--  특성: 연기·유리 투과, 화점 정밀 탐지                             -->
+  <!--  FOV: 수평 56° / 수직 46° / 해상도 320×240                     -->
+  <!-- ============================================================ -->
+  <xacro:macro name="swir_thermal_camera"
+    params="parent_link xyz:='0 0 0' rpy:='0 0 0'
+            topic:='/thermal_swir/image_raw'
+            camera_name:='swir_camera'">
+
+    <link name="${camera_name}_link">
+      <visual>
+        <geometry>
+          <!-- SWIR 카메라 하우징 근사 -->
+          <box size="0.06 0.08 0.06"/>
+        </geometry>
+        <material name="sherpa_yellow"/>
+      </visual>
+      <collision>
+        <geometry>
+          <box size="0.06 0.08 0.06"/>
+        </geometry>
+      </collision>
+      <xacro:sensor_inertia_small/>
+    </link>
+
+    <!-- 광학 프레임 (Z forward, X right, Y down — ROS 관례) -->
+    <link name="${camera_name}_optical_link"/>
+
+    <joint name="${camera_name}_joint" type="fixed">
+      <parent link="${parent_link}"/>
+      <child link="${camera_name}_link"/>
+      <origin xyz="${xyz}" rpy="${rpy}"/>
+    </joint>
+
+    <joint name="${camera_name}_optical_joint" type="fixed">
+      <parent link="${camera_name}_link"/>
+      <child link="${camera_name}_optical_link"/>
+      <origin xyz="0 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
+    </joint>
+
+    <gazebo reference="${camera_name}_link">
+      <material>
+        <ambient>1.0 0.80 0.0 1.0</ambient>
+        <diffuse>1.0 0.80 0.0 1.0</diffuse>
+      </material>
+      <!-- Gazebo Harmonic: thermal_camera 타입으로 근사
+           실제 SWIR(1,550nm)은 Gazebo에서 직접 지원하지 않음
+           → thermal_camera + 커스텀 플러그인 조합으로 시뮬레이션 -->
+      <sensor name="${camera_name}" type="thermal_camera">
+        <always_on>true</always_on>
+        <!-- SWIR 카메라 일반 업데이트 주기 -->
+        <update_rate>30</update_rate>
+        <topic>${topic}</topic>
+        <gz_frame_id>${camera_name}_optical_link</gz_frame_id>
+        <camera>
+          <!-- 수평 FOV 56° = 0.9774 rad -->
+          <horizontal_fov>0.9774</horizontal_fov>
+          <image>
+            <width>320</width>
+            <height>240</height>
+            <format>L8</format>
+          </image>
+          <clip>
+            <near>0.1</near>
+            <!-- SWIR 유효 거리 (연기 투과 기준) -->
+            <far>100.0</far>
+          </clip>
+          <noise>
+            <type>gaussian</type>
+            <mean>0.0</mean>
+            <stddev>0.005</stddev>
+          </noise>
+        </camera>
+      </sensor>
+    </gazebo>
+
+  </xacro:macro>
+
+  <!-- ============================================================ -->
+  <!--  LWIR 열화상 카메라 (Long-Wave Infrared, 8,000~14,000nm)       -->
+  <!--  특성: 전체 온도 분포 파악, 표준 열화상                           -->
+  <!--  FOV: 수평 95° / 수직 74° / 해상도 320×240                     -->
+  <!-- ============================================================ -->
+  <xacro:macro name="lwir_thermal_camera"
+    params="parent_link xyz:='0 0 0' rpy:='0 0 0'
+            topic:='/thermal_lwir/image_raw'
+            camera_name:='lwir_camera'">
+
+    <link name="${camera_name}_link">
+      <visual>
+        <geometry>
+          <!-- LWIR 카메라 하우징 (SWIR보다 렌즈 구경 큼) -->
+          <box size="0.07 0.09 0.07"/>
+        </geometry>
+        <material name="sherpa_yellow"/>
+      </visual>
+      <collision>
+        <geometry>
+          <box size="0.07 0.09 0.07"/>
+        </geometry>
+      </collision>
+      <xacro:sensor_inertia_small/>
+    </link>
+
+    <link name="${camera_name}_optical_link"/>
+
+    <joint name="${camera_name}_joint" type="fixed">
+      <parent link="${parent_link}"/>
+      <child link="${camera_name}_link"/>
+      <origin xyz="${xyz}" rpy="${rpy}"/>
+    </joint>
+
+    <joint name="${camera_name}_optical_joint" type="fixed">
+      <parent link="${camera_name}_link"/>
+      <child link="${camera_name}_optical_link"/>
+      <origin xyz="0 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
+    </joint>
+
+    <gazebo reference="${camera_name}_link">
+      <material>
+        <ambient>1.0 0.60 0.0 1.0</ambient>
+        <diffuse>1.0 0.60 0.0 1.0</diffuse>
+      </material>
+      <sensor name="${camera_name}" type="thermal_camera">
+        <always_on>true</always_on>
+        <!-- LWIR 표준 프레임 레이트 -->
+        <update_rate>25</update_rate>
+        <topic>${topic}</topic>
+        <gz_frame_id>${camera_name}_optical_link</gz_frame_id>
+        <camera>
+          <!-- 수평 FOV 95° = 1.6580 rad -->
+          <horizontal_fov>1.6580</horizontal_fov>
+          <image>
+            <width>320</width>
+            <height>240</height>
+            <format>L8</format>
+          </image>
+          <clip>
+            <near>0.1</near>
+            <!-- LWIR 유효 거리 -->
+            <far>80.0</far>
+          </clip>
+          <noise>
+            <type>gaussian</type>
+            <mean>0.0</mean>
+            <stddev>0.008</stddev>
+          </noise>
+        </camera>
+      </sensor>
+    </gazebo>
+
+  </xacro:macro>
+
+  <!-- ============================================================ -->
+  <!--  LiDAR (기존 UGV 동일 스펙: 360°, 10m)                         -->
+  <!--  대형 차량이므로 마운트 높이 조정                                  -->
+  <!-- ============================================================ -->
+  <xacro:macro name="sherpa_lidar"
+    params="parent_link xyz:='0 0 0' rpy:='0 0 0'
+            topic:='/scan'">
+
+    <link name="lidar_link">
+      <visual>
+        <geometry>
+          <!-- 산업용 LiDAR 하우징 크기로 scale-up -->
+          <cylinder radius="0.06" length="0.08"/>
+        </geometry>
+        <material name="sherpa_dark"/>
+      </visual>
+      <collision>
+        <geometry>
+          <cylinder radius="0.06" length="0.08"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="1.0"/>
+        <inertia ixx="0.001" ixy="0" ixz="0"
+                 iyy="0.001" iyz="0"
+                 izz="0.001"/>
+      </inertial>
+    </link>
+
+    <joint name="lidar_joint" type="fixed">
+      <parent link="${parent_link}"/>
+      <child link="lidar_link"/>
+      <origin xyz="${xyz}" rpy="${rpy}"/>
+    </joint>
+
+    <gazebo reference="lidar_link">
+      <material>
+        <ambient>0.15 0.15 0.15 1.0</ambient>
+        <diffuse>0.15 0.15 0.15 1.0</diffuse>
+      </material>
+      <!-- Gazebo Harmonic: gpu_lidar 사용 (ray 타입 지원 중단) -->
+      <sensor name="gpu_lidar" type="gpu_lidar">
+        <always_on>true</always_on>
+        <update_rate>10</update_rate>
+        <topic>${topic}</topic>
+        <gz_frame_id>lidar_link</gz_frame_id>
+        <lidar>
+          <scan>
+            <horizontal>
+              <samples>360</samples>
+              <resolution>1</resolution>
+              <min_angle>-3.14159</min_angle>
+              <max_angle>3.14159</max_angle>
+            </horizontal>
+          </scan>
+          <range>
+            <min>0.20</min>
+            <max>10.0</max>
+            <resolution>0.01</resolution>
+          </range>
+          <noise>
+            <type>gaussian</type>
+            <mean>0.0</mean>
+            <stddev>0.01</stddev>
+          </noise>
+        </lidar>
+      </sensor>
+    </gazebo>
+
+  </xacro:macro>
+
+  <!-- ============================================================ -->
+  <!--  RGB 카메라 (640×480, 전방 육안 확인용)                          -->
+  <!-- ============================================================ -->
+  <xacro:macro name="sherpa_rgb_camera"
+    params="parent_link xyz:='0 0 0' rpy:='0 0 0'
+            topic:='/camera/image_raw'
+            camera_name:='front_camera'">
+
+    <link name="${camera_name}_link">
+      <visual>
+        <geometry>
+          <box size="0.05 0.10 0.05"/>
+        </geometry>
+        <material name="sherpa_dark"/>
+      </visual>
+      <collision>
+        <geometry>
+          <box size="0.05 0.10 0.05"/>
+        </geometry>
+      </collision>
+      <xacro:sensor_inertia_small/>
+    </link>
+
+    <link name="${camera_name}_optical_link"/>
+
+    <joint name="${camera_name}_joint" type="fixed">
+      <parent link="${parent_link}"/>
+      <child link="${camera_name}_link"/>
+      <origin xyz="${xyz}" rpy="${rpy}"/>
+    </joint>
+
+    <joint name="${camera_name}_optical_joint" type="fixed">
+      <parent link="${camera_name}_link"/>
+      <child link="${camera_name}_optical_link"/>
+      <origin xyz="0 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
+    </joint>
+
+    <gazebo reference="${camera_name}_link">
+      <material>
+        <ambient>0.15 0.15 0.15 1.0</ambient>
+        <diffuse>0.15 0.15 0.15 1.0</diffuse>
+      </material>
+      <sensor name="${camera_name}" type="camera">
+        <always_on>true</always_on>
+        <update_rate>30</update_rate>
+        <topic>${topic}</topic>
+        <gz_frame_id>${camera_name}_optical_link</gz_frame_id>
+        <camera>
+          <!-- 수평 FOV 100° = 1.7453 rad (소방 현장 광각 확보) -->
+          <horizontal_fov>1.7453</horizontal_fov>
+          <image>
+            <width>640</width>
+            <height>480</height>
+            <format>R8G8B8</format>
+          </image>
+          <clip>
+            <near>0.1</near>
+            <far>100.0</far>
+          </clip>
+          <noise>
+            <type>gaussian</type>
+            <mean>0.0</mean>
+            <stddev>0.007</stddev>
+          </noise>
+        </camera>
+      </sensor>
+    </gazebo>
+
+  </xacro:macro>
+
+  <!-- ============================================================ -->
+  <!--  IMU (250Hz, 자세 추정 + 경사 지면 보정)                         -->
+  <!-- ============================================================ -->
+  <xacro:macro name="sherpa_imu"
+    params="parent_link xyz:='0 0 0' rpy:='0 0 0'
+            topic:='/imu/data'">
+
+    <link name="imu_link">
+      <visual>
+        <geometry>
+          <box size="0.03 0.03 0.015"/>
+        </geometry>
+        <material name="sherpa_yellow"/>
+      </visual>
+      <collision>
+        <geometry>
+          <box size="0.03 0.03 0.015"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.05"/>
+        <inertia ixx="0.000001" ixy="0" ixz="0"
+                 iyy="0.000001" iyz="0"
+                 izz="0.000001"/>
+      </inertial>
+    </link>
+
+    <joint name="imu_joint" type="fixed">
+      <parent link="${parent_link}"/>
+      <child link="imu_link"/>
+      <origin xyz="${xyz}" rpy="${rpy}"/>
+    </joint>
+
+    <gazebo reference="imu_link">
+      <material>
+        <ambient>1.0 0.8 0.0 1.0</ambient>
+        <diffuse>1.0 0.8 0.0 1.0</diffuse>
+      </material>
+      <sensor name="imu" type="imu">
+        <always_on>true</always_on>
+        <!-- NFRI 제원: 250Hz -->
+        <update_rate>250</update_rate>
+        <topic>${topic}</topic>
+        <gz_frame_id>imu_link</gz_frame_id>
+        <imu>
+          <!-- 대형 차량 환경: 진동 노이즈 파라미터 조정 -->
+          <angular_velocity>
+            <x><noise type="gaussian"><mean>0</mean><stddev>0.0005</stddev></noise></x>
+            <y><noise type="gaussian"><mean>0</mean><stddev>0.0005</stddev></noise></y>
+            <z><noise type="gaussian"><mean>0</mean><stddev>0.0005</stddev></noise></z>
+          </angular_velocity>
+          <linear_acceleration>
+            <x><noise type="gaussian"><mean>0</mean><stddev>0.020</stddev></noise></x>
+            <y><noise type="gaussian"><mean>0</mean><stddev>0.020</stddev></noise></y>
+            <z><noise type="gaussian"><mean>0</mean><stddev>0.020</stddev></noise></z>
+          </linear_acceleration>
+        </imu>
+      </sensor>
+    </gazebo>
+
+  </xacro:macro>
+
+  <!-- ============================================================ -->
+  <!--  레이더 (depth_camera로 근사)                                    -->
+  <!--  실제 레이더: FOV 30°, 50m 탐지                                  -->
+  <!--  Gazebo에 레이더 센서 타입 없음 → depth_camera로 기능 근사        -->
+  <!--  추후: custom Gazebo plugin으로 실제 레이더 특성 재현 가능         -->
+  <!-- ============================================================ -->
+  <xacro:macro name="sherpa_radar"
+    params="parent_link xyz:='0 0 0' rpy:='0 0 0'
+            topic:='/radar/points'
+            sensor_name:='radar'">
+
+    <link name="${sensor_name}_link">
+      <visual>
+        <geometry>
+          <!-- 레이더 안테나 모듈 근사 -->
+          <box size="0.15 0.20 0.05"/>
+        </geometry>
+        <material name="sherpa_silver"/>
+      </visual>
+      <collision>
+        <geometry>
+          <box size="0.15 0.20 0.05"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="2.0"/>
+        <inertia ixx="0.0005" ixy="0" ixz="0"
+                 iyy="0.0005" iyz="0"
+                 izz="0.0005"/>
+      </inertial>
+    </link>
+
+    <link name="${sensor_name}_optical_link"/>
+
+    <joint name="${sensor_name}_joint" type="fixed">
+      <parent link="${parent_link}"/>
+      <child link="${sensor_name}_link"/>
+      <origin xyz="${xyz}" rpy="${rpy}"/>
+    </joint>
+
+    <joint name="${sensor_name}_optical_joint" type="fixed">
+      <parent link="${sensor_name}_link"/>
+      <child link="${sensor_name}_optical_link"/>
+      <origin xyz="0 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
+    </joint>
+
+    <gazebo reference="${sensor_name}_link">
+      <material>
+        <ambient>0.70 0.70 0.70 1.0</ambient>
+        <diffuse>0.70 0.70 0.70 1.0</diffuse>
+      </material>
+      <!-- depth_camera로 레이더 기능 근사
+           FOV 30° = 0.5236 rad, 최대 50m -->
+      <sensor name="${sensor_name}" type="depth_camera">
+        <always_on>true</always_on>
+        <!-- 레이더 일반 업데이트 주기 -->
+        <update_rate>20</update_rate>
+        <topic>${topic}</topic>
+        <gz_frame_id>${sensor_name}_optical_link</gz_frame_id>
+        <camera>
+          <!-- 레이더 FOV 30° = 0.5236 rad (좁은 빔 근사) -->
+          <horizontal_fov>0.5236</horizontal_fov>
+          <image>
+            <!-- 레이더 포인트클라우드 해상도 (낮은 해상도로 레이더 특성 근사) -->
+            <width>128</width>
+            <height>64</height>
+            <format>R_FLOAT32</format>
+          </image>
+          <clip>
+            <near>1.0</near>
+            <!-- 레이더 최대 탐지 거리 50m -->
+            <far>50.0</far>
+          </clip>
+        </camera>
+      </sensor>
+    </gazebo>
+
+  </xacro:macro>
+
+  <!-- ============================================================ -->
+  <!--  셰르파 전체 센서 패키지 (최상위 매크로)                           -->
+  <!--  sherpa.urdf.xacro에서 1회 호출                                 -->
+  <!-- ============================================================ -->
+  <xacro:macro name="sherpa_sensors" params="parent_link">
+
+    <!-- SWIR 열화상: 전방 상단 중앙 (연기 투과 탐지) -->
+    <xacro:swir_thermal_camera
+      parent_link="${parent_link}"
+      xyz="0.70 0 0.10"
+      rpy="0 0 0"
+      topic="/thermal_swir/image_raw"
+      camera_name="swir_camera"/>
+
+    <!-- LWIR 열화상: 전방, SWIR 바로 옆 (온도 분포 전체 화면) -->
+    <xacro:lwir_thermal_camera
+      parent_link="${parent_link}"
+      xyz="0.70 0.15 0.10"
+      rpy="0 0 0"
+      topic="/thermal_lwir/image_raw"
+      camera_name="lwir_camera"/>
+
+    <!-- LiDAR: 센서 플랫폼 최상단 중앙 (360° 시야 확보) -->
+    <xacro:sherpa_lidar
+      parent_link="${parent_link}"
+      xyz="0 0 0.15"
+      rpy="0 0 0"
+      topic="/scan"/>
+
+    <!-- RGB 카메라: 전방 중앙 (육안 확인) -->
+    <xacro:sherpa_rgb_camera
+      parent_link="${parent_link}"
+      xyz="0.70 -0.15 0.10"
+      rpy="0 0 0"
+      topic="/camera/image_raw"
+      camera_name="front_camera"/>
+
+    <!-- IMU: 센서 플랫폼 중심 (자세 추정, 진동 최소화 위치) -->
+    <xacro:sherpa_imu
+      parent_link="${parent_link}"
+      xyz="0 0 0.05"
+      rpy="0 0 0"
+      topic="/imu/data"/>
+
+    <!-- 레이더: 전방 하단 (연기·장애물 원거리 탐지, 50m) -->
+    <xacro:sherpa_radar
+      parent_link="${parent_link}"
+      xyz="0.70 0 -0.05"
+      rpy="0 0 0"
+      topic="/radar/points"
+      sensor_name="radar"/>
+
+  </xacro:macro>
+
+</robot>
