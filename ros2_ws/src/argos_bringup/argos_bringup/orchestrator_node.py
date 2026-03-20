@@ -21,6 +21,7 @@ ARGOS Orchestrator Node (MS-7)
         /orchestrator/fire_alert (FireAlert)
   발행: /orchestrator/mission_state (MissionState)
         /orchestrator/autonomy_mode (std_msgs/String) — "CENTRALIZED" | "LOCAL_AUTONOMY"
+        /orchestrator/hose_conflict (std_msgs/String) — JSON: {"rid_a", "rid_b", "resolution"}
   서비스: /orchestrator/emergency_stop (Trigger) — 전원 즉시 정지
           /orchestrator/set_stage (SetStage) — 임무 단계 전환
 
@@ -124,6 +125,13 @@ class RobotRecord:
         self.hose_charged: bool = False        # 호스 가압 여부
         self.hose_path: list = []              # 경유점 목록 [(x, y)]
 
+        # 역할 분리 (역할 기반 임무 필터링용)
+        # 'explore'     : 기본 탐색 임무
+        # 'fire_attack' : 진압 전담 (화점 접근, 소화 작업)
+        # 'hose_supply' : 호스공급 전담 (현재 위치 정지, 릴 관리)
+        # 'recon'       : 드론 정찰 (호스 제약 무시)
+        self.role: str = 'explore'
+
 
 class OrchestratorNode(LifecycleNode):
     """오케스트레이터 노드 — LifecycleNode 패턴.
@@ -193,11 +201,13 @@ class OrchestratorNode(LifecycleNode):
         self._sensor_subs = []  # 8중 센싱 구독 핸들 리스트
         self.mission_pub = None
         self.autonomy_mode_pub = None  # C-3: 로봇별 자율 모드 토픽
+        self._hose_conflict_pub = None  # 호스 충돌 이벤트 발행자
         self.stop_srv = None
         self.resume_srv = None
         self._gas_watchdog_timer = None
         self.state_timer = None
         self.heartbeat_timer = None
+        self._hose_check_timer = None  # 주기적 호스 충돌 검사 타이머
 
     # ─────────────────── Lifecycle Callbacks ───────────────────
 
@@ -335,6 +345,10 @@ class OrchestratorNode(LifecycleNode):
         self.autonomy_mode_pub = self.create_publisher(
             String, '/orchestrator/autonomy_mode', autonomy_qos)
 
+        # 호스 충돌 이벤트 발행자 — 외부 모니터링 / 대시보드 연동용
+        self._hose_conflict_pub = self.create_publisher(
+            String, '/orchestrator/hose_conflict', 10)
+
         # --- Services ---
         self.stop_srv = self.create_service(
             Trigger, '/orchestrator/emergency_stop',
@@ -352,6 +366,8 @@ class OrchestratorNode(LifecycleNode):
         # H1: gas sensor watchdog — 5초 이상 수신 없으면 경고
         self._last_gas_time = self.get_clock().now()
         self._gas_watchdog_timer = self.create_timer(5.0, self._check_gas_watchdog)
+        # 호스 충돌 주기 검사 — 2초마다 모든 셰르파 쌍 교차 검사
+        self._hose_check_timer = self.create_timer(2.0, self._periodic_hose_check)
 
         self.get_logger().info(
             f'Orchestrator activated — {len(expected)} robots: {expected}')
@@ -376,6 +392,11 @@ class OrchestratorNode(LifecycleNode):
             self._gas_watchdog_timer.cancel()
             self.destroy_timer(self._gas_watchdog_timer)
             self._gas_watchdog_timer = None
+        # 호스 충돌 검사 타이머 해제
+        if self._hose_check_timer is not None:
+            self._hose_check_timer.cancel()
+            self.destroy_timer(self._hose_check_timer)
+            self._hose_check_timer = None
 
         # 서비스 해제
         if self.stop_srv is not None:
@@ -392,6 +413,9 @@ class OrchestratorNode(LifecycleNode):
         if self.autonomy_mode_pub is not None:
             self.destroy_publisher(self.autonomy_mode_pub)
             self.autonomy_mode_pub = None
+        if self._hose_conflict_pub is not None:
+            self.destroy_publisher(self._hose_conflict_pub)
+            self._hose_conflict_pub = None
 
         # emergency_stop용 cmd_vel 발행자 해제
         for rid, pub in list(self.robot_stop_pubs.items()):
@@ -773,6 +797,11 @@ class OrchestratorNode(LifecycleNode):
                 continue
             if r.mission_lock is not None:
                 continue  # busy — 다른 임무 수행 중
+            # 역할 필터: hose_supply 로봇은 진압/구조 임무 수신 거부
+            if r.role == 'hose_supply':
+                self.get_logger().info(
+                    f'RESCUE SKIP (역할): {rid} — hose_supply 전담 중, 구조 파견 불가')
+                continue
             dx = r.pose.pose.position.x - target.x
             dy = r.pose.pose.position.y - target.y
             dist = math.hypot(dx, dy)
@@ -941,6 +970,147 @@ class OrchestratorNode(LifecycleNode):
                     return True
 
         return False
+
+    def _periodic_hose_check(self):
+        """모든 셰르파 쌍의 호스 경로 교차 검사 (2초 타이머).
+
+        hose_remaining_m >= 0인 로봇(셰르파)끼리만 교차 검사.
+        교차 감지 시 _resolve_hose_conflict로 역할 재분리.
+        """
+        with self._robots_lock:
+            sherpa_ids = [
+                rid for rid, rec in self.robots.items()
+                if rec.hose_remaining_m >= 0
+            ]
+
+        for i, rid_a in enumerate(sherpa_ids):
+            for rid_b in sherpa_ids[i + 1:]:
+                if self._detect_hose_conflict(rid_a, rid_b):
+                    self._resolve_hose_conflict(rid_a, rid_b)
+
+    def _resolve_hose_conflict(self, rid_a: str, rid_b: str):
+        """호스 교차 시 역할 재분리.
+
+        전략: 호스가 더 적게 풀린(hose_remaining_m 값이 더 큰) 로봇을
+        호스공급 전담으로 전환하고, 나머지를 진압 로봇으로 배정.
+
+        hose_remaining_m이 클수록 아직 많이 풀리지 않은 상태 →
+        덜 전진한 쪽이 뒤에서 릴을 관리하기에 적합.
+
+        Args:
+            rid_a: 첫 번째 셰르파 로봇 ID
+            rid_b: 두 번째 셰르파 로봇 ID
+        """
+        with self._robots_lock:
+            rec_a = self.robots.get(rid_a)
+            rec_b = self.robots.get(rid_b)
+
+        if rec_a is None or rec_b is None:
+            return
+
+        # 호스를 더 많이 남긴(덜 풀린) 로봇이 공급 전담
+        if rec_a.hose_remaining_m > rec_b.hose_remaining_m:
+            supply_robot, attack_robot = rid_a, rid_b
+        else:
+            supply_robot, attack_robot = rid_b, rid_a
+
+        self.get_logger().warn(
+            f'[호스충돌] {rid_a} <-> {rid_b} 교차 감지. '
+            f'{supply_robot}을 hose_supply 전담으로 전환, '
+            f'{attack_robot}을 fire_attack으로 유지')
+
+        # 공급 로봇: 현재 위치 정지 + 역할 전환
+        with self._robots_lock:
+            if supply_robot in self.robots:
+                self.robots[supply_robot].role = 'hose_supply'
+        self._cancel_goal(supply_robot)
+
+        # 진압 로봇: 역할 전환 + 경로 재계획 (교차 방향 회피)
+        with self._robots_lock:
+            if attack_robot in self.robots:
+                self.robots[attack_robot].role = 'fire_attack'
+        self._replan_avoiding_hose(attack_robot, supply_robot)
+
+        # 호스 충돌 이벤트 발행 (대시보드 / 외부 모니터링 연동)
+        if self._hose_conflict_pub is not None:
+            import json
+            event_msg = String()
+            event_msg.data = json.dumps({
+                'rid_a': rid_a,
+                'rid_b': rid_b,
+                'resolution': f'{supply_robot}→hose_supply, {attack_robot}→fire_attack',
+            }, ensure_ascii=False)
+            self._hose_conflict_pub.publish(event_msg)
+
+    def _cancel_goal(self, robot_id: str):
+        """지정 로봇에 정지 명령 발행 (목표 취소).
+
+        robot_stop_pubs 발행자를 재사용하거나 신규 생성.
+        """
+        if robot_id not in self.robot_stop_pubs:
+            self.robot_stop_pubs[robot_id] = self.create_publisher(
+                TwistStamped, f'/{robot_id}/cmd_vel', 10)
+        stop_cmd = TwistStamped()
+        stop_cmd.header.stamp = self.get_clock().now().to_msg()
+        self.robot_stop_pubs[robot_id].publish(stop_cmd)
+        self.get_logger().info(f'[호스충돌] {robot_id} 정지 명령 발행 (목표 취소)')
+
+    def _replan_avoiding_hose(self, robot_id: str, supply_robot_id: str):
+        """호스 교차 회피 경로 재계획 (단순 구현).
+
+        교차점 반대 방향으로 1m 이동 후 기존 임무 재탐색.
+        supply_robot의 현재 위치를 기준으로 회피 방향 계산.
+
+        Args:
+            robot_id: 경로를 재계획할 진압 로봇 ID
+            supply_robot_id: 공급 로봇 ID (회피 기준점)
+        """
+        with self._robots_lock:
+            r_attack = self.robots.get(robot_id)
+            r_supply = self.robots.get(supply_robot_id)
+
+        if r_attack is None or r_attack.pose is None:
+            self.get_logger().warn(
+                f'[호스충돌] {robot_id} 위치 미확인 — 재계획 스킵')
+            return
+
+        ax = r_attack.pose.pose.position.x
+        ay = r_attack.pose.pose.position.y
+
+        # 공급 로봇 위치가 있으면 그 반대 방향으로 1m 이동
+        if r_supply is not None and r_supply.pose is not None:
+            sx = r_supply.pose.pose.position.x
+            sy = r_supply.pose.pose.position.y
+            dx = ax - sx
+            dy = ay - sy
+            dist = math.hypot(dx, dy)
+            if dist > 1e-6:
+                # 정규화 후 1m 회피 목표 생성
+                nx = ax + (dx / dist) * 1.0
+                ny = ay + (dy / dist) * 1.0
+            else:
+                # 두 로봇이 동일 위치 → x축 +1m 회피
+                nx, ny = ax + 1.0, ay
+        else:
+            # 공급 로봇 위치 없음 → x축 +1m 회피
+            nx, ny = ax + 1.0, ay
+
+        # 임시 웨이포인트 발행 (드론 웨이포인트 채널 재사용)
+        # TODO: UGV 전용 웨이포인트 토픽 분리 시 여기 교체
+        topic = f'/{robot_id}/drone/waypoint'
+        if robot_id not in self.drone_wp_pubs:
+            self.drone_wp_pubs[robot_id] = self.create_publisher(
+                PoseStamped, topic, 10)
+        wp = PoseStamped()
+        wp.header.stamp = self.get_clock().now().to_msg()
+        wp.header.frame_id = 'map'
+        wp.pose.position.x = nx
+        wp.pose.position.y = ny
+        wp.pose.position.z = 0.0
+        self.drone_wp_pubs[robot_id].publish(wp)
+        self.get_logger().warn(
+            f'[호스충돌] {robot_id} 재경로: ({ax:.1f},{ay:.1f}) → '
+            f'({nx:.1f},{ny:.1f}) (교차 방향 1m 회피)')
 
     # ─────────────────── 보안: 센서 합의 + 충돌 방지 (작업 2) ───────────────────
 
@@ -1251,6 +1421,7 @@ class OrchestratorNode(LifecycleNode):
                 f'지휘관에게 전달.')
 
         # 1) 최근접 UGV 선정
+        # 역할 기반 우선순위: fire_attack > explore > 기타 (hose_supply 제외)
         with self._robots_lock:
             snapshot = dict(self.robots)
         best_ugv = None
@@ -1258,9 +1429,15 @@ class OrchestratorNode(LifecycleNode):
         for rid, r in snapshot.items():
             if r.robot_type != 'ugv' or r.comm_lost or r.pose is None:
                 continue
+            # hose_supply 역할 로봇은 진압 임무 수신 거부
+            if r.role == 'hose_supply':
+                continue
             dx = r.pose.pose.position.x - fire_pt.x
             dy = r.pose.pose.position.y - fire_pt.y
             dist = math.hypot(dx, dy)
+            # fire_attack 역할은 거리에 패널티 없이 우선 선정
+            if r.role == 'fire_attack':
+                dist *= 0.5  # fire_attack 로봇 우선 선택 (가중치 보정)
             if dist < best_dist:
                 best_dist = dist
                 best_ugv = rid
