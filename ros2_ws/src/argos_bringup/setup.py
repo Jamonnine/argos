@@ -67,6 +67,10 @@ setup(
             'px4_platform = argos_bringup.px4_platform:main',
             # HR-셰르파 호스 릴 상태 추적
             'hose_tether = argos_bringup.hose_tether_node:main',
+            # HR-셰르파 자체분무(Water Curtain) + 방수포 시뮬레이션
+            'water_curtain = argos_bringup.water_curtain_node:main',
+            # 방수포 분사 시 LiDAR 신뢰도 저하 시뮬레이션 (NFRI 실험 데이터 기반)
+            'lidar_degradation = argos_bringup.lidar_degradation_node:main',
         ],
     },
 )

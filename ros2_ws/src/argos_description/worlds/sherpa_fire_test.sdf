@@ -1,0 +1,717 @@
+<?xml version="1.0" ?>
+<!--
+  NFRI 실화재 실험장 (sherpa_fire_test)
+  ======================================
+  국립소방연구원(NFRI) 발표 슬라이드 기반 실화재 실험장 재현.
+  셰르파 UGV(3.1×2.0m) + 이종 군집 소방 로봇 ARGOS 시험 전용.
+
+  실험장 제원 (1차 자료):
+  - 크기: 12m(길이/X) × 6m(폭/Y) × 3m(높이)
+  - 진입구: 2.5m 개구부 (남쪽 벽, X 중앙)
+    ※ 원 설계 1.5m → 셰르파(폭 2.0m) 측면 진입 확보 위해 2.5m로 확장
+  - 화원 위치: 북쪽 안쪽 벽면 (Y=5.85)
+  - 가연물: 폴리우레탄 폼, 스티로폼+고무, 목재(소나무), 복합
+  - 관측 장비: 감광식 연기농도계, 온도보상도선, 열유속계(복사열)
+  - 마네킹 3체 (구조대상자 식별용, 37°C = 310K)
+
+  좌표계 (위에서 내려다봄):
+  ┌──────────────────────────────┐
+  │  북쪽 안쪽벽 (Y=6)           │
+  │  [화원A 600K]  [화원B 1173K]  │
+  │                               │
+  │  [마네킹1][마네킹2][마네킹3]  │
+  │                               │
+  │  남쪽 외벽 (Y=0)              │
+  └──────┤  진입구 2.5m  ├────────┘
+         X=4.75~7.25
+  0,0 = 남서 코너 (외벽 기준)
+  셰르파 스폰: (6.0, -0.75, 0.1) — 진입구 외부 진입 대기 위치
+
+  파티클 pitch -1.5708 이유:
+  Gazebo ParticleEmitter 기본 분출 방향은 +X.
+  pitch=-1.5708(90도 하향) 시 분출 방향이 +Z(위)로 전환.
+-->
+<sdf version="1.9">
+  <world name="sherpa_fire_test">
+
+    <!-- ===================== 필수 플러그인 ===================== -->
+
+    <!-- 물리 엔진 -->
+    <plugin filename="gz-sim-physics-system"
+            name="gz::sim::systems::Physics"/>
+
+    <!-- 사용자 명령 (GUI 드래그, 스폰 등) -->
+    <plugin filename="gz-sim-user-commands-system"
+            name="gz::sim::systems::UserCommands"/>
+
+    <!-- 씬 브로드캐스터 (ROS 2 bridge용) -->
+    <plugin filename="gz-sim-scene-broadcaster-system"
+            name="gz::sim::systems::SceneBroadcaster"/>
+
+    <!-- 센서 시스템 (열화상·카메라·라이다) -->
+    <plugin filename="gz-sim-sensors-system"
+            name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+
+    <!-- 충돌 감지 -->
+    <plugin filename="gz-sim-contact-system"
+            name="gz::sim::systems::Contact"/>
+
+    <!-- IMU 시스템 -->
+    <plugin filename="gz-sim-imu-system"
+            name="gz::sim::systems::Imu"/>
+
+    <!-- 파티클 에미터 시스템 (연기·불꽃 렌더링 필수) -->
+    <!-- 이 선언 없으면 <particle_emitter> 블록 전체 무시됨 -->
+    <plugin filename="gz-sim-particle-emitter-system"
+            name="gz::sim::systems::ParticleEmitter"/>
+
+    <!-- ===================== 환경 설정 ===================== -->
+
+    <!-- 열화상 카메라 배경 기준 온도 (20°C = 293.15K) -->
+    <!-- 이 값보다 높은 온도를 가진 모델이 열화상에 밝게 표시됨 -->
+    <atmosphere type="adiabatic">
+      <temperature>293.15</temperature>
+    </atmosphere>
+
+    <!-- 물리 엔진 설정 -->
+    <physics name="default_physics" type="ode">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+      <real_time_update_rate>1000</real_time_update_rate>
+    </physics>
+
+    <!-- ===================== 조명 ===================== -->
+
+    <!-- 디렉셔널 라이트 — 어두운 밀폐 실내 (화재 현장) -->
+    <!-- intensity 0.1 수준의 어두운 공간 표현 -->
+    <light type="directional" name="dim_ambient">
+      <cast_shadows>false</cast_shadows>
+      <pose>6 3 10 0 0 0</pose>
+      <!-- diffuse 0.10 = 매우 어두운 실내 (요구사항 intensity 0.1) -->
+      <diffuse>0.10 0.09 0.08 1</diffuse>
+      <specular>0.03 0.03 0.02 1</specular>
+      <attenuation>
+        <range>1000</range>
+        <constant>0.9</constant>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <!-- 화원A 근처 포인트 라이트 (600°C 화재 주황빛) -->
+    <light type="point" name="fire_light_a">
+      <cast_shadows>false</cast_shadows>
+      <pose>3.0 5.5 1.5 0 0 0</pose>
+      <diffuse>1.0 0.5 0.1 1</diffuse>
+      <specular>0.8 0.3 0.0 1</specular>
+      <attenuation>
+        <range>4</range>
+        <constant>0.3</constant>
+        <linear>0.3</linear>
+        <quadratic>0.1</quadratic>
+      </attenuation>
+    </light>
+
+    <!-- 화원B 근처 포인트 라이트 (900°C 화재 더 밝고 강함) -->
+    <light type="point" name="fire_light_b">
+      <cast_shadows>false</cast_shadows>
+      <pose>9.0 5.5 1.5 0 0 0</pose>
+      <diffuse>1.0 0.4 0.05 1</diffuse>
+      <specular>0.9 0.25 0.0 1</specular>
+      <attenuation>
+        <range>6</range>
+        <constant>0.2</constant>
+        <linear>0.2</linear>
+        <quadratic>0.05</quadratic>
+      </attenuation>
+    </light>
+
+    <!-- ===================== 바닥 (콘크리트 텍스처, 고마찰) ===================== -->
+
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <!-- 실험장 전체 + 외부 여유 영역 포함 -->
+              <size>25 25</size>
+            </plane>
+          </geometry>
+          <surface>
+            <friction>
+              <ode>
+                <!-- 콘크리트 바닥: 마찰 계수 높음 (μ ≈ 0.8) -->
+                <mu>0.8</mu>
+                <mu2>0.8</mu2>
+              </ode>
+            </friction>
+          </surface>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <plane>
+              <normal>0 0 1</normal>
+              <size>25 25</size>
+            </plane>
+          </geometry>
+          <material>
+            <!-- 콘크리트 바닥 색상 (회색 계열) -->
+            <ambient>0.55 0.53 0.50 1</ambient>
+            <diffuse>0.55 0.53 0.50 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ===================== 실험장 외벽 (두께 0.15m, 높이 3m) ===================== -->
+
+    <!--
+      남쪽 외벽 (Y=0) — 진입구 포함
+      진입구 2.5m (X=4.75~7.25, 중앙 X=6.0)
+      좌측 세그먼트: X=0~4.75 → 길이 4.75m, 중심 X=2.375
+      우측 세그먼트: X=7.25~12 → 길이 4.75m, 중심 X=9.625
+    -->
+    <model name="wall_south_left">
+      <static>true</static>
+      <!-- 중심 X=2.375, Y=0, Z=1.5 (높이 3m의 절반) -->
+      <pose>2.375 0 1.5 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>4.75 0.15 3.0</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>4.75 0.15 3.0</size></box></geometry>
+          <material>
+            <!-- 콘크리트 벽 색상 -->
+            <ambient>0.72 0.70 0.66 1</ambient>
+            <diffuse>0.72 0.70 0.66 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="wall_south_right">
+      <static>true</static>
+      <!-- 중심 X=9.625, Y=0, Z=1.5 -->
+      <pose>9.625 0 1.5 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>4.75 0.15 3.0</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>4.75 0.15 3.0</size></box></geometry>
+          <material>
+            <ambient>0.72 0.70 0.66 1</ambient>
+            <diffuse>0.72 0.70 0.66 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 진입구 상단 상인방 (lintel) — 진입구 위 벽 구조 완성 -->
+    <!-- 높이: Z=2.5~3.0 (두께 0.5m), X=4.75~7.25 폭 2.5m -->
+    <model name="wall_south_lintel">
+      <static>true</static>
+      <!-- 중심 X=6.0, Y=0, Z=2.75 (2.5 + 0.25) -->
+      <pose>6.0 0 2.75 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>2.5 0.15 0.5</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>2.5 0.15 0.5</size></box></geometry>
+          <material>
+            <ambient>0.72 0.70 0.66 1</ambient>
+            <diffuse>0.72 0.70 0.66 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 북쪽 안쪽 벽 (Y=6) — 화원 부착 벽, 그을음으로 어두운 색상 -->
+    <model name="wall_north">
+      <static>true</static>
+      <!-- 중심 X=6.0, Y=6.0, Z=1.5 -->
+      <pose>6.0 6.0 1.5 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>12.0 0.15 3.0</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>12.0 0.15 3.0</size></box></geometry>
+          <material>
+            <!-- 화재 그을음으로 어두운 북쪽 벽 -->
+            <ambient>0.45 0.40 0.35 1</ambient>
+            <diffuse>0.45 0.40 0.35 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 서쪽 벽 (X=0) -->
+    <model name="wall_west">
+      <static>true</static>
+      <!-- 중심 X=0, Y=3.0, Z=1.5 -->
+      <pose>0 3.0 1.5 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.15 6.0 3.0</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.15 6.0 3.0</size></box></geometry>
+          <material>
+            <ambient>0.72 0.70 0.66 1</ambient>
+            <diffuse>0.72 0.70 0.66 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 동쪽 벽 (X=12) -->
+    <model name="wall_east">
+      <static>true</static>
+      <!-- 중심 X=12.0, Y=3.0, Z=1.5 -->
+      <pose>12.0 3.0 1.5 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.15 6.0 3.0</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.15 6.0 3.0</size></box></geometry>
+          <material>
+            <ambient>0.72 0.70 0.66 1</ambient>
+            <diffuse>0.72 0.70 0.66 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 천장 — 밀폐 공간 완성 (충돌 없이 시각 전용) -->
+    <model name="ceiling">
+      <static>true</static>
+      <!-- 중심 X=6.0, Y=3.0, Z=3.075 (높이 3m 위, 두께 0.15m) -->
+      <pose>6.0 3.0 3.075 0 0 0</pose>
+      <link name="link">
+        <!-- 천장은 시각 전용 (센서가 천장 통과해야 할 때를 대비) -->
+        <visual name="visual">
+          <geometry><box><size>12.0 6.0 0.15</size></box></geometry>
+          <material>
+            <!-- 그을린 천장 -->
+            <ambient>0.35 0.33 0.30 1</ambient>
+            <diffuse>0.35 0.33 0.30 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ===================== 화원 모델 (안쪽 벽면 부착) ===================== -->
+
+    <!--
+      fire_source_a — 폴리우레탄 폼/스티로폼+고무 화재 (좌측)
+      위치: 북쪽 벽면(Y≈5.8), 실험장 좌측 (X=3.0)
+      온도: 873.15K (600°C) — 초기~성장기 화재
+      시각: 빨간-주황 박스 0.4×0.4×0.3m
+    -->
+    <model name="fire_source_a">
+      <static>true</static>
+      <pose>3.0 5.8 0.15 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.4 0.3 0.3</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box><size>0.4 0.3 0.3</size></box>
+          </geometry>
+          <material>
+            <!-- 빨간-주황 화점 (600°C) -->
+            <ambient>1.0 0.10 0.02 1</ambient>
+            <diffuse>1.0 0.10 0.02 1</diffuse>
+            <emissive>0.8 0.05 0.0 1</emissive>
+          </material>
+        </visual>
+      </link>
+      <!-- 열화상 카메라에 600°C = 873.15K 시그니처 출력 -->
+      <plugin filename="gz-sim-thermal-system"
+              name="gz::sim::systems::Thermal">
+        <temperature>873.15</temperature>
+      </plugin>
+    </model>
+
+    <!--
+      fire_source_b — 목재(소나무)/복합 화재 (우측)
+      위치: 북쪽 벽면(Y≈5.8), 실험장 우측 (X=9.0)
+      온도: 1173.15K (900°C) — 성장기·최성기 화재
+      시각: 더 강한 주황 박스 0.4×0.4×0.3m
+    -->
+    <model name="fire_source_b">
+      <static>true</static>
+      <pose>9.0 5.8 0.15 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.4 0.3 0.3</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box><size>0.4 0.3 0.3</size></box>
+          </geometry>
+          <material>
+            <!-- 더 강한 주황-노랑 불꽃 (900°C) -->
+            <ambient>1.0 0.15 0.0 1</ambient>
+            <diffuse>1.0 0.15 0.0 1</diffuse>
+            <emissive>1.0 0.08 0.0 1</emissive>
+          </material>
+        </visual>
+      </link>
+      <!-- 열화상 카메라에 900°C = 1173.15K 시그니처 출력 -->
+      <plugin filename="gz-sim-thermal-system"
+              name="gz::sim::systems::Thermal">
+        <temperature>1173.15</temperature>
+      </plugin>
+    </model>
+
+    <!-- ===================== 연기 파티클 (화원 A) ===================== -->
+
+    <!--
+      smoke_a — 화원A 연기 (폴리우레탄/스티로폼 — 짙고 검은 연기)
+      pitch=-1.5708: +X 기본 분출 방향 → +Z(위) 전환
+      particle_scatter_ratio: 감광식 연기농도계 시뮬레이션 (0.75)
+    -->
+    <model name="smoke_a">
+      <static>true</static>
+      <pose>3.0 5.8 0.35 0 -1.5708 0</pose>
+      <link name="smoke_link">
+        <particle_emitter name="smoke_emitter_a" type="box">
+          <emitting>true</emitting>
+          <!-- 화원 크기에 맞는 발생 영역 -->
+          <size>0.35 0.25 0</size>
+          <!-- 개별 파티클 크기 (연기 덩어리) -->
+          <particle_size>0.45 0.45 0.45</particle_size>
+          <!-- 초당 파티클 수 -->
+          <rate>30</rate>
+          <!-- 파티클 수명 (초) -->
+          <lifetime>4</lifetime>
+          <!-- 상승 속도 (밀폐 공간: 천천히 축적) -->
+          <min_velocity>0.3</min_velocity>
+          <max_velocity>0.7</max_velocity>
+          <!-- 연기가 퍼지는 효과 -->
+          <scale_rate>1.0</scale_rate>
+          <!-- 회색 연기 (폴리우레탄은 실제 검지만, 회색으로 표현) -->
+          <material>
+            <diffuse>0.4 0.4 0.4 0.8</diffuse>
+            <specular>0.2 0.2 0.2 0.5</specular>
+          </material>
+          <!-- 라이다 산란 비율: 감광식 연기농도계 효과 시뮬레이션 -->
+          <particle_scatter_ratio>0.75</particle_scatter_ratio>
+        </particle_emitter>
+      </link>
+    </model>
+
+    <!--
+      flame_a — 화원A 불꽃 파티클 (주황-빨강, 600°C)
+    -->
+    <model name="flame_a">
+      <static>true</static>
+      <pose>3.0 5.8 0.28 0 -1.5708 0</pose>
+      <link name="flame_link">
+        <particle_emitter name="flame_emitter_a" type="box">
+          <emitting>true</emitting>
+          <size>0.30 0.25 0</size>
+          <particle_size>0.18 0.18 0.18</particle_size>
+          <rate>30</rate>
+          <!-- 불꽃은 짧게 소멸 -->
+          <lifetime>0.9</lifetime>
+          <min_velocity>0.5</min_velocity>
+          <max_velocity>1.1</max_velocity>
+          <scale_rate>0.25</scale_rate>
+          <!-- 주황-빨강 불꽃 (600°C) -->
+          <material>
+            <diffuse>1.0 0.4 0.05 0.9</diffuse>
+            <specular>1.0 0.6 0.1 0.8</specular>
+          </material>
+          <!-- 불꽃은 센서 영향 최소화 -->
+          <particle_scatter_ratio>0.1</particle_scatter_ratio>
+        </particle_emitter>
+      </link>
+    </model>
+
+    <!-- ===================== 연기 파티클 (화원 B) ===================== -->
+
+    <!--
+      smoke_b — 화원B 연기 (목재/복합 — 더 많고 짙음)
+      rate=50, lifetime=6 — 목재 화재 대량 연기
+    -->
+    <model name="smoke_b">
+      <static>true</static>
+      <pose>9.0 5.8 0.35 0 -1.5708 0</pose>
+      <link name="smoke_link">
+        <particle_emitter name="smoke_emitter_b" type="box">
+          <emitting>true</emitting>
+          <size>0.40 0.30 0</size>
+          <!-- 대형 화재: 파티클 크기 크게 -->
+          <particle_size>0.60 0.60 0.60</particle_size>
+          <!-- 목재 화재: 발생률 높음 -->
+          <rate>50</rate>
+          <!-- 목재 화재: 수명 길게 (밀폐 공간에서 연기 축적) -->
+          <lifetime>6</lifetime>
+          <min_velocity>0.4</min_velocity>
+          <max_velocity>1.0</max_velocity>
+          <!-- 빠르게 퍼지는 연기 -->
+          <scale_rate>1.3</scale_rate>
+          <!-- 짙은 회색 연기 -->
+          <material>
+            <diffuse>0.4 0.4 0.4 0.8</diffuse>
+            <specular>0.15 0.15 0.15 0.6</specular>
+          </material>
+          <!-- 라이다 산란 높게 (짙은 연기, 감광식 연기농도계 효과) -->
+          <particle_scatter_ratio>0.85</particle_scatter_ratio>
+        </particle_emitter>
+      </link>
+    </model>
+
+    <!--
+      flame_b — 화원B 불꽃 파티클 (주황-노랑, 900°C, 더 강함)
+    -->
+    <model name="flame_b">
+      <static>true</static>
+      <pose>9.0 5.8 0.28 0 -1.5708 0</pose>
+      <link name="flame_link">
+        <particle_emitter name="flame_emitter_b" type="box">
+          <emitting>true</emitting>
+          <size>0.38 0.30 0</size>
+          <particle_size>0.28 0.28 0.28</particle_size>
+          <!-- 대형 화재: 불꽃 발생률 높음 -->
+          <rate>60</rate>
+          <lifetime>1.3</lifetime>
+          <min_velocity>0.7</min_velocity>
+          <max_velocity>2.2</max_velocity>
+          <scale_rate>0.40</scale_rate>
+          <!-- 주황-노랑 불꽃 (900°C 고온) -->
+          <material>
+            <diffuse>1.0 0.55 0.0 0.95</diffuse>
+            <specular>1.0 0.80 0.2 0.9</specular>
+          </material>
+          <particle_scatter_ratio>0.1</particle_scatter_ratio>
+        </particle_emitter>
+      </link>
+    </model>
+
+    <!-- ===================== 마네킹 3체 (구조대상자) ===================== -->
+
+    <!--
+      마네킹 1 — 실험장 중앙 좌측
+      실린더로 인체 근사: 반지름 0.2m, 높이 1.7m
+      온도: 310.15K (37°C) — 체온 기준, 열화상 탐지 대상
+      위치: (3.0, 3.0) — 화원A에서 2.8m 전방
+    -->
+    <model name="mannequin_1">
+      <static>true</static>
+      <!-- Z=0.85: 실린더 높이 1.7m의 절반 (바닥에서 중심까지) -->
+      <pose>3.0 3.0 0.85 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <cylinder>
+              <radius>0.2</radius>
+              <length>1.7</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <cylinder>
+              <radius>0.2</radius>
+              <length>1.7</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <!-- 마네킹 색상: 사람 피부/의복 근사 (베이지-갈색) -->
+            <ambient>0.65 0.50 0.35 1</ambient>
+            <diffuse>0.65 0.50 0.35 1</diffuse>
+          </material>
+        </visual>
+      </link>
+      <!-- 열화상 카메라에 37°C = 310.15K 체온 시그니처 출력 -->
+      <plugin filename="gz-sim-thermal-system"
+              name="gz::sim::systems::Thermal">
+        <temperature>310.15</temperature>
+      </plugin>
+    </model>
+
+    <!--
+      마네킹 2 — 실험장 중앙
+      위치: (6.0, 2.5) — 진입로 중심선
+    -->
+    <model name="mannequin_2">
+      <static>true</static>
+      <pose>6.0 2.5 0.85 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <cylinder>
+              <radius>0.2</radius>
+              <length>1.7</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <cylinder>
+              <radius>0.2</radius>
+              <length>1.7</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.65 0.50 0.35 1</ambient>
+            <diffuse>0.65 0.50 0.35 1</diffuse>
+          </material>
+        </visual>
+      </link>
+      <plugin filename="gz-sim-thermal-system"
+              name="gz::sim::systems::Thermal">
+        <temperature>310.15</temperature>
+      </plugin>
+    </model>
+
+    <!--
+      마네킹 3 — 실험장 중앙 우측
+      위치: (9.0, 3.0) — 화원B에서 2.8m 전방
+    -->
+    <model name="mannequin_3">
+      <static>true</static>
+      <pose>9.0 3.0 0.85 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <cylinder>
+              <radius>0.2</radius>
+              <length>1.7</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <cylinder>
+              <radius>0.2</radius>
+              <length>1.7</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.65 0.50 0.35 1</ambient>
+            <diffuse>0.65 0.50 0.35 1</diffuse>
+          </material>
+        </visual>
+      </link>
+      <plugin filename="gz-sim-thermal-system"
+              name="gz::sim::systems::Thermal">
+        <temperature>310.15</temperature>
+      </plugin>
+    </model>
+
+    <!-- ===================== 관측 장비 표식 ===================== -->
+
+    <!--
+      감광식 연기농도계 — 실험장 중앙 상단 (천장 부근)
+      좌표: (6.0, 3.0, 2.7) — 연기가 천장에 축적되는 위치
+      시각: 작은 흰 박스 (실제 센서 기기)
+    -->
+    <model name="smoke_detector">
+      <static>true</static>
+      <pose>6.0 3.0 2.7 0 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry><box><size>0.15 0.15 0.08</size></box></geometry>
+          <material>
+            <ambient>0.9 0.9 0.9 1</ambient>
+            <diffuse>0.9 0.9 0.9 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!--
+      열유속계 (복사열) — 화원 정면 중간 위치 (1m 높이)
+      좌표: (6.0, 4.5, 1.0) — 두 화원 사이 정면
+      시각: 작은 은색 원통
+    -->
+    <model name="heat_flux_meter">
+      <static>true</static>
+      <pose>6.0 4.5 1.0 1.5708 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <cylinder>
+              <radius>0.06</radius>
+              <length>0.12</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.70 0.70 0.70 1</ambient>
+            <diffuse>0.70 0.70 0.70 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ===================== 가연물 더미 (화원 주변) ===================== -->
+
+    <!--
+      연료 더미 A — 화원A 옆 (폴리우레탄 폼 근사)
+      실제 화재 실험 시 화원 주변에 적치된 가연물
+    -->
+    <model name="fuel_pile_a">
+      <static>true</static>
+      <pose>3.0 5.5 0.2 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.8 0.4 0.4</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.8 0.4 0.4</size></box></geometry>
+          <material>
+            <!-- 그을린 스티로폼/고무 색상 -->
+            <ambient>0.25 0.22 0.18 1</ambient>
+            <diffuse>0.25 0.22 0.18 1</diffuse>
+          </material>
+        </visual>
+      </link>
+      <!-- 가연물 온도: 화재 복사열로 예열된 상태 (200°C = 473.15K) -->
+      <plugin filename="gz-sim-thermal-system"
+              name="gz::sim::systems::Thermal">
+        <temperature>473.15</temperature>
+      </plugin>
+    </model>
+
+    <!--
+      연료 더미 B — 화원B 옆 (목재/복합 가연물 근사)
+    -->
+    <model name="fuel_pile_b">
+      <static>true</static>
+      <pose>9.0 5.5 0.2 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.8 0.4 0.4</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.8 0.4 0.4</size></box></geometry>
+          <material>
+            <!-- 목재 색상 (탄화 진행 중) -->
+            <ambient>0.30 0.22 0.12 1</ambient>
+            <diffuse>0.30 0.22 0.12 1</diffuse>
+          </material>
+        </visual>
+      </link>
+      <!-- 목재 화재 복사열: 250°C = 523.15K -->
+      <plugin filename="gz-sim-thermal-system"
+              name="gz::sim::systems::Thermal">
+        <temperature>523.15</temperature>
+      </plugin>
+    </model>
+
+  </world>
+</sdf>
