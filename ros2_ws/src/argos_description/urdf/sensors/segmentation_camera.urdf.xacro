@@ -1,0 +1,108 @@
+<?xml version="1.0"?>
+<!--
+  ARGOS 세그멘테이션 카메라 매크로
+  ==================================
+  Gazebo Harmonic 세맨틱 세그멘테이션 센서.
+  RGB 카메라와 동일 위치에 마운트하여 같은 뷰를 공유.
+  자동 어노테이션 데이터셋 생성 전용 (5Hz, 학습 시에만 활성화).
+
+  출력 토픽:
+    /segmentation/image          — 세그멘테이션 컬러맵 (sensor_msgs/Image)
+    /segmentation/colored_map    — 시각화용 컬러 오버레이
+    /segmentation/labels_map     — 클래스 ID 맵 (레이블 추출용)
+
+  참고: gz-sim-segmentation-camera-system 플러그인 필요
+  (Gazebo Harmonic 기본 포함 — 별도 설치 불필요)
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:macro name="segmentation_camera"
+               params="parent_link
+                       xyz:='0 0 0'
+                       rpy:='0 0 0'
+                       camera_name:='segmentation_camera'
+                       topic:='/segmentation/image'">
+
+    <!-- 세그멘테이션 카메라 링크 (RGB 카메라와 동일 크기) -->
+    <link name="${camera_name}_link">
+      <visual>
+        <geometry>
+          <!-- RGB 카메라와 구분을 위해 약간 작게 표시 -->
+          <box size="0.025 0.05 0.025"/>
+        </geometry>
+        <material name="argos_dark"/>
+      </visual>
+      <collision>
+        <geometry>
+          <box size="0.025 0.05 0.025"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <mass value="0.05"/>
+        <inertia ixx="0.000005" ixy="0" ixz="0"
+                 iyy="0.000005" iyz="0" izz="0.000005"/>
+      </inertial>
+    </link>
+
+    <!-- 카메라 광학 프레임 (ROS 관례: Z=전방, X=우측, Y=하단) -->
+    <link name="${camera_name}_optical_link"/>
+
+    <!-- 부모 링크 → 카메라 바디 -->
+    <joint name="${camera_name}_joint" type="fixed">
+      <parent link="${parent_link}"/>
+      <child link="${camera_name}_link"/>
+      <origin xyz="${xyz}" rpy="${rpy}"/>
+    </joint>
+
+    <!-- 카메라 바디 → 광학 프레임 (축 회전: ROS 카메라 관례 적용) -->
+    <joint name="${camera_name}_optical_joint" type="fixed">
+      <parent link="${camera_name}_link"/>
+      <child link="${camera_name}_optical_link"/>
+      <origin xyz="0 0 0" rpy="${-pi/2} 0 ${-pi/2}"/>
+    </joint>
+
+    <!-- Gazebo Harmonic 세그멘테이션 센서 정의 -->
+    <gazebo reference="${camera_name}_link">
+      <material>
+        <ambient>0.1 0.1 0.3 1.0</ambient>
+        <diffuse>0.1 0.1 0.3 1.0</diffuse>
+      </material>
+
+      <!-- gz-sim-segmentation-camera-system 플러그인 -->
+      <sensor name="${camera_name}" type="segmentation">
+
+        <always_on>true</always_on>
+        <!-- 5Hz: 어노테이션 수집 목적이므로 30fps 불필요 -->
+        <update_rate>5</update_rate>
+
+        <topic>${topic}</topic>
+        <gz_frame_id>${camera_name}_optical_link</gz_frame_id>
+
+        <camera>
+          <!-- RGB 카메라와 동일한 FOV (100°) — 같은 뷰 보장 -->
+          <horizontal_fov>1.7453293</horizontal_fov>
+
+          <image>
+            <width>640</width>
+            <height>480</height>
+          </image>
+
+          <clip>
+            <near>0.1</near>
+            <far>50.0</far>
+          </clip>
+
+          <!--
+            semantic: 모델 단위 클래스 레이블 부여
+            instance: 개별 객체 단위 ID 부여 (개수 많을 때 유용)
+            → 화재·연기·사람 클래스 분류가 목적이므로 semantic 사용
+          -->
+          <segmentation_type>semantic</segmentation_type>
+        </camera>
+
+      </sensor>
+    </gazebo>
+
+  </xacro:macro>
+
+</robot>
