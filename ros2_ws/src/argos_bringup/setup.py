@@ -65,6 +65,8 @@ setup(
             # Platform 계층 — PlatformInterface 구현체 테스트 진입점
             'ugv_platform = argos_bringup.ugv_platform:main',
             'px4_platform = argos_bringup.px4_platform:main',
+            # HR-셰르파 호스 릴 상태 추적
+            'hose_tether = argos_bringup.hose_tether_node:main',
         ],
     },
 )

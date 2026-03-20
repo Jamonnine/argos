@@ -45,7 +45,7 @@ from rclpy.duration import Duration
 from rclpy.callback_groups import ReentrantCallbackGroup
 
 from std_srvs.srv import Trigger
-from std_msgs.msg import String
+from std_msgs.msg import String, Float32MultiArray
 from geometry_msgs.msg import Point, Twist, TwistStamped, PoseStamped
 from argos_interfaces.msg import (
     RobotStatus, FireAlert, MissionState,
@@ -117,6 +117,12 @@ class RobotRecord:
         # 통신 품질 추적 (패킷 손실 감지, 작업 4)
         self.last_seq = -1           # 마지막 수신 seq_number (-1=미수신)
         self.packet_loss_count = 0   # 누적 패킷 손실 카운트
+
+        # 호스 상태 (셰르파 전용, -1 = 호스 없음 / 미해당 로봇)
+        self.hose_remaining_m: float = -1.0   # 남은 호스 길이 (m)
+        self.hose_kink_risk: float = 0.0      # 꺾임(kink) 위험도 [0.0-1.0]
+        self.hose_charged: bool = False        # 호스 가압 여부
+        self.hose_path: list = []              # 경유점 목록 [(x, y)]
 
 
 class OrchestratorNode(LifecycleNode):
@@ -302,6 +308,19 @@ class OrchestratorNode(LifecycleNode):
             self._sensor_subs.append(self.create_subscription(
                 AudioEvent, f'/{rid}/audio/events',
                 self.audio_callback, audio_qos))
+
+        # --- 호스 상태 구독 (셰르파 로봇 전용) ---
+        # sherpa_ 접두사를 가진 로봇에만 구독 생성
+        # 호스 없는 로봇(UGV, 드론)은 hose_remaining_m = -1로 유지됨
+        for rid in expected:
+            if rid.startswith('sherpa'):
+                self._sensor_subs.append(self.create_subscription(
+                    Float32MultiArray,
+                    f'/{rid}/hose/status',
+                    lambda msg, r=rid: self._hose_status_callback(r, msg),
+                    sensor_qos,
+                ))
+                self.get_logger().info(f'호스 상태 구독 등록: /{rid}/hose/status')
 
         # --- Publishers ---
         self.mission_pub = self.create_publisher(
@@ -763,6 +782,11 @@ class OrchestratorNode(LifecycleNode):
 
         dispatched = []
         for rid, dist in available[:2]:
+            # 호스 길이 제약 체크 (셰르파 전용 — 호스 없는 로봇은 자동 통과)
+            if not self._check_hose_depth(rid, target.x, target.y):
+                self.get_logger().warn(
+                    f'RESCUE SKIP: {rid} — 호스 부족으로 구조 파견 불가')
+                continue
             with self._robots_lock:
                 if rid in self.robots:
                     self.robots[rid].mission_lock = 'rescue'
@@ -777,6 +801,146 @@ class OrchestratorNode(LifecycleNode):
         elif len(dispatched) == 1:
             self.get_logger().warn(
                 f'Only 1 robot available for rescue (2 recommended)')
+
+    # ─────────────────── 호스 제약 관리 ───────────────────
+
+    def _hose_status_callback(self, robot_id: str, msg: Float32MultiArray):
+        """셰르파 로봇의 호스 상태 수신 → RobotRecord 갱신.
+
+        Float32MultiArray 레이아웃 (data 인덱스):
+          [0] hose_remaining_m  — 남은 호스 길이 (m)
+          [1] hose_kink_risk    — 꺾임 위험도 [0.0-1.0]
+          [2] hose_charged      — 가압 여부 (0.0=false, 1.0=true)
+          [3] path_x_0, [4] path_y_0, [5] path_x_1, [6] path_y_1, ...
+               — 호스 경유점 목록 (짝수 인덱스=x, 홀수 인덱스=y)
+        """
+        if len(msg.data) < 3:
+            self.get_logger().warn(
+                f'[호스] {robot_id}: 데이터 길이 부족 ({len(msg.data)}개) — 무시')
+            return
+
+        with self._robots_lock:
+            if robot_id not in self.robots:
+                self.robots[robot_id] = RobotRecord(robot_id)
+            r = self.robots[robot_id]
+            r.hose_remaining_m = float(msg.data[0])
+            r.hose_kink_risk = float(msg.data[1])
+            r.hose_charged = bool(msg.data[2] > 0.5)
+
+            # 경유점 파싱 (인덱스 3부터 2개씩 x, y 쌍)
+            path_data = msg.data[3:]
+            r.hose_path = [
+                (float(path_data[i]), float(path_data[i + 1]))
+                for i in range(0, len(path_data) - 1, 2)
+            ]
+
+        if r.hose_kink_risk > 0.7:
+            self.get_logger().warn(
+                f'[호스] {robot_id}: 꺾임 위험 높음 ({r.hose_kink_risk:.2f}) '
+                f'— 경로 조정 권고')
+
+    def _check_hose_depth(self, robot_id: str, target_x: float, target_y: float) -> bool:
+        """진입 깊이와 남은 호스 길이를 비교해 진입 가능 여부 판단.
+
+        호스가 없는 로봇(hose_remaining_m = -1)은 항상 True 반환.
+
+        Args:
+            robot_id: 대상 로봇 ID
+            target_x, target_y: 목표 위치 (맵 좌표)
+
+        Returns:
+            bool: True = 진입 가능 / False = 호스 부족으로 진입 불가
+        """
+        with self._robots_lock:
+            r = self.robots.get(robot_id)
+
+        if r is None or r.hose_remaining_m < 0:
+            # 호스 없는 로봇 — 제약 없음
+            return True
+
+        if r.pose is None:
+            # 위치 미확인 시 보수적으로 허용
+            return True
+
+        rx = r.pose.pose.position.x
+        ry = r.pose.pose.position.y
+        required_depth = math.hypot(target_x - rx, target_y - ry)
+
+        if required_depth > r.hose_remaining_m:
+            self.get_logger().warn(
+                f'[호스] {robot_id}: 진입 깊이 {required_depth:.1f}m > '
+                f'남은 호스 {r.hose_remaining_m:.1f}m — 진입 불가')
+            return False
+
+        return True
+
+    def _detect_hose_conflict(self, rid_a: str, rid_b: str) -> bool:
+        """두 로봇의 호스 경로가 교차하는지 확인 (선분 교차 알고리즘).
+
+        교차 감지 시 WARN 로그 + rid_b의 assigned_target 초기화(재할당 트리거).
+        호스 경로가 없는 로봇은 교차 없음으로 처리.
+
+        Returns:
+            bool: True = 교차 충돌 감지됨
+        """
+        with self._robots_lock:
+            ra = self.robots.get(rid_a)
+            rb = self.robots.get(rid_b)
+
+        if ra is None or rb is None:
+            return False
+        if len(ra.hose_path) < 2 or len(rb.hose_path) < 2:
+            # 경유점이 2개 미만이면 선분 구성 불가
+            return False
+
+        def _cross(o, a, b):
+            """외적으로 방향 판별."""
+            return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+        def _on_segment(p, q, r_pt):
+            """점 r_pt가 선분 pq 위에 있는지 확인."""
+            return (min(p[0], q[0]) <= r_pt[0] <= max(p[0], q[0]) and
+                    min(p[1], q[1]) <= r_pt[1] <= max(p[1], q[1]))
+
+        def _segments_intersect(p1, p2, p3, p4):
+            """두 선분 (p1-p2)와 (p3-p4)의 교차 여부."""
+            d1 = _cross(p3, p4, p1)
+            d2 = _cross(p3, p4, p2)
+            d3 = _cross(p1, p2, p3)
+            d4 = _cross(p1, p2, p4)
+
+            if ((d1 > 0 < d2) or (d1 < 0 > d2)) and \
+               ((d3 > 0 < d4) or (d3 < 0 > d4)):
+                return True
+            # 동일선상(collinear) 처리
+            if d1 == 0 and _on_segment(p3, p4, p1):
+                return True
+            if d2 == 0 and _on_segment(p3, p4, p2):
+                return True
+            if d3 == 0 and _on_segment(p1, p2, p3):
+                return True
+            if d4 == 0 and _on_segment(p1, p2, p4):
+                return True
+            return False
+
+        # 모든 선분 쌍 비교
+        path_a = ra.hose_path
+        path_b = rb.hose_path
+        for i in range(len(path_a) - 1):
+            for j in range(len(path_b) - 1):
+                if _segments_intersect(path_a[i], path_a[i + 1],
+                                       path_b[j], path_b[j + 1]):
+                    self.get_logger().warn(
+                        f'[호스] 경로 충돌: {rid_a} ↔ {rid_b} — '
+                        f'{rid_b} 재할당 필요')
+                    # 충돌한 로봇(rid_b)의 목표 초기화 → 재할당 트리거
+                    with self._robots_lock:
+                        if rid_b in self.robots:
+                            self.robots[rid_b].assigned_target = None
+                            self.robots[rid_b].mission_lock = None
+                    return True
+
+        return False
 
     # ─────────────────── 보안: 센서 합의 + 충돌 방지 (작업 2) ───────────────────
 
@@ -1106,6 +1270,10 @@ class OrchestratorNode(LifecycleNode):
             if self._check_collision_risk(fire_pt, best_ugv):
                 self.get_logger().warn(
                     f'Dispatch to {best_ugv} deferred — collision risk at fire point')
+            # 호스 길이 제약 체크 (셰르파 전용 — 호스 없는 로봇은 자동 통과)
+            elif not self._check_hose_depth(best_ugv, fire_pt.x, fire_pt.y):
+                self.get_logger().warn(
+                    f'Dispatch to {best_ugv} deferred — hose length insufficient')
             else:
                 self.primary_responder = best_ugv
                 self.get_logger().warn(

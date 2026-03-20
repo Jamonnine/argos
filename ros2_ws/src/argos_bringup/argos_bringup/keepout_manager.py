@@ -43,12 +43,15 @@ from nav_msgs.msg import OccupancyGrid, MapMetaData
 from std_msgs.msg import String
 from geometry_msgs.msg import Pose
 
+from std_msgs.msg import Float32MultiArray
+
 from argos_interfaces.msg import GasReading, StructuralAlert
 
 
 # keepout zone 위험 원인 분류
 CAUSE_GAS = 'gas'
 CAUSE_STRUCTURAL = 'structural'
+CAUSE_HOSE = 'hose'  # 호스 경로 장애물
 
 # Nav2 costmap 비용값
 LETHAL_COST = 100   # 절대 진입 불가
@@ -60,7 +63,7 @@ class KeeputZone:
     """개별 keepout zone 레코드."""
 
     zone_id: int
-    cause: str              # CAUSE_GAS | CAUSE_STRUCTURAL
+    cause: str              # CAUSE_GAS | CAUSE_STRUCTURAL | CAUSE_HOSE
     center_x: float         # 맵 좌표 X (m)
     center_y: float         # 맵 좌표 Y (m)
     radius_m: float         # keepout 반경 (m)
@@ -68,6 +71,7 @@ class KeeputZone:
     expires_at: float       # 만료 시각 (unix time)
     sensor_cleared: bool = False  # 센서가 정상 복귀 여부
     description: str = ''   # 원인 상세 설명
+    robot_id: str = ''      # 호스 zone의 경우 소유 로봇 ID
 
 
 class KeepoutManager(Node):
@@ -91,6 +95,11 @@ class KeepoutManager(Node):
         self.declare_parameter('co_threshold_ppm', 200.0)
         self.declare_parameter('lel_threshold_percent', 10.0)
         self.declare_parameter('publish_rate_hz', 1.0)
+        # 호스 keepout 파라미터
+        # 호스 직경 65mm + 여유 150mm = 215mm 반경
+        self.declare_parameter('hose_radius_m', 0.215)
+        self.declare_parameter('hose_expiry_sec', 3600.0)     # 1시간
+        self.declare_parameter('sherpa_robots', ['sherpa1', 'sherpa2'])  # 셰르파 로봇 목록
 
         self.radius = self.get_parameter('keepout_radius_m').value
         self.expiry_sec = self.get_parameter('expiry_sec').value
@@ -99,6 +108,10 @@ class KeepoutManager(Node):
         self.co_thresh = self.get_parameter('co_threshold_ppm').value
         self.lel_thresh = self.get_parameter('lel_threshold_percent').value
         pub_rate = min(self.get_parameter('publish_rate_hz').value, 10.0)
+        self.hose_radius = self.get_parameter('hose_radius_m').value
+        self.hose_expiry_sec = self.get_parameter('hose_expiry_sec').value
+        self._sherpa_robots: List[str] = list(
+            self.get_parameter('sherpa_robots').value)
 
         # ── keepout zone 저장소 ──
         # key: zone_id, value: KeeputZone
@@ -107,6 +120,9 @@ class KeepoutManager(Node):
 
         # 가스 정상화 추적: robot_id → 마지막 정상 판정 시각
         self._gas_cleared_at: Dict[str, float] = {}
+
+        # 호스 path_viz 구독 핸들 (deactivate 시 해제용)
+        self._hose_path_subs: List = []
 
         # ── QoS ──
         reliable_qos = QoSProfile(
@@ -128,6 +144,17 @@ class KeepoutManager(Node):
             self._structural_cb,
             reliable_qos,
         )
+
+        # ── 호스 경로 시각화 구독 (셰르파 로봇 → 자동 keepout 갱신) ──
+        for rid in self._sherpa_robots:
+            sub = self.create_subscription(
+                Float32MultiArray,
+                f'/{rid}/hose/path_viz',
+                lambda msg, r=rid: self._hose_path_viz_cb(r, msg),
+                10,
+            )
+            self._hose_path_subs.append(sub)
+            self.get_logger().info(f'호스 경로 구독 등록: /{rid}/hose/path_viz')
 
         # ── 발행 ──
         self.costmap_pub = self.create_publisher(
@@ -263,6 +290,97 @@ class KeepoutManager(Node):
             if dist < 5.0:
                 zone.sensor_cleared = True
 
+    # ─────────────────── 호스 경로 Keepout 관리 ───────────────────
+
+    def mark_hose_path(self, robot_id: str, path_points: List[tuple]):
+        """호스 경로를 costmap 선형 장애물로 등록.
+
+        경로 선분마다 중간점을 keepout zone 중심으로 등록합니다.
+        반경: hose_radius_m (0.215m = 호스 직경 65mm + 여유 150mm).
+        만료: hose_expiry_sec (기본 3600초).
+
+        Args:
+            robot_id: 호스를 소유한 셰르파 로봇 ID
+            path_points: [(x, y)] 형태의 경유점 목록 (최소 2개)
+        """
+        if len(path_points) < 2:
+            return
+
+        # 기존 호스 zone 먼저 삭제 (갱신 방식)
+        self.clear_hose_path(robot_id)
+
+        now = time.time()
+        for i in range(len(path_points) - 1):
+            x0, y0 = path_points[i]
+            x1, y1 = path_points[i + 1]
+            # 선분 중간점을 zone 중심으로 사용
+            cx = (x0 + x1) / 2.0
+            cy = (y0 + y1) / 2.0
+
+            zone = KeeputZone(
+                zone_id=self._next_zone_id,
+                cause=CAUSE_HOSE,
+                center_x=cx,
+                center_y=cy,
+                radius_m=self.hose_radius,
+                created_at=now,
+                expires_at=now + self.hose_expiry_sec,
+                sensor_cleared=False,
+                description=f'{robot_id} 호스 경로 seg{i}',
+                robot_id=robot_id,
+            )
+            self.zones[self._next_zone_id] = zone
+            self._next_zone_id += 1
+
+        self.get_logger().info(
+            f'[호스 Keepout] {robot_id}: {len(path_points) - 1}개 선분 등록 '
+            f'(r={self.hose_radius}m, 만료={self.hose_expiry_sec}s)')
+
+    def clear_hose_path(self, robot_id: str):
+        """해당 로봇의 호스 keepout zone 전체 삭제.
+
+        호스 회수 또는 경로 갱신 시 호출.
+
+        Args:
+            robot_id: 호스를 소유한 셰르파 로봇 ID
+        """
+        to_remove = [
+            zid for zid, z in self.zones.items()
+            if z.cause == CAUSE_HOSE and z.robot_id == robot_id
+        ]
+        for zid in to_remove:
+            self.zones.pop(zid)
+
+        if to_remove:
+            self.get_logger().info(
+                f'[호스 Keepout] {robot_id}: {len(to_remove)}개 zone 해제')
+
+    def _hose_path_viz_cb(self, robot_id: str, msg: Float32MultiArray):
+        """/{robot_id}/hose/path_viz 구독 콜백 → 자동 keepout 갱신.
+
+        Float32MultiArray.data 레이아웃:
+          짝수 인덱스=x, 홀수 인덱스=y (순서대로 경유점 쌍)
+          예: [x0, y0, x1, y1, x2, y2, ...]
+
+        데이터가 비어 있으면 호스 회수로 판단하고 keepout 삭제.
+        """
+        if len(msg.data) == 0:
+            # 빈 데이터 = 호스 회수 신호
+            self.clear_hose_path(robot_id)
+            return
+
+        if len(msg.data) % 2 != 0:
+            self.get_logger().warn(
+                f'[호스 Keepout] {robot_id}: path_viz 데이터 길이 홀수 '
+                f'({len(msg.data)}) — 무시')
+            return
+
+        path = [
+            (float(msg.data[i]), float(msg.data[i + 1]))
+            for i in range(0, len(msg.data), 2)
+        ]
+        self.mark_hose_path(robot_id, path)
+
     def _remove_expired_zones(self):
         """만료 조건 충족 zone 제거.
 
@@ -282,7 +400,8 @@ class KeepoutManager(Node):
                 if zone.sensor_cleared:
                     to_remove.append(zone_id)
             else:
-                # 구조물: 시간 만료만으로 제거
+                # 구조물 / 호스: 시간 만료만으로 제거
+                # 호스 zone은 clear_hose_path()로 명시 삭제도 가능
                 to_remove.append(zone_id)
 
         for zone_id in to_remove:
@@ -377,6 +496,7 @@ class KeepoutManager(Node):
                     'expires_in_sec': round(z.expires_at - now, 0),
                     'sensor_cleared': z.sensor_cleared,
                     'description': z.description,
+                    'robot_id': z.robot_id,  # 호스 zone 소유 로봇 (빈 문자열=비호스)
                 }
                 for z in self.zones.values()
             ],
