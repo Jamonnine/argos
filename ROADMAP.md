@@ -30,8 +30,8 @@
 4. 세션 종료: 이 파일 + argos-tutor.md 진도 갱신 → git commit → wsl --shutdown
 ```
 
-**현재 위치**: `Phase A~C 95% 완료 → Phase D (Batch 7) 착수 대기`
-**실적**: Batch 1~6 완료 (22+파일, 5000+줄), Nav2✅ Frontier✅ 화재월드✅ Zenoh(23goals/6succeeded)✅
+**현재 위치**: `Phase D+ 완료 → Phase E 합성데이터 실행 대기 + V-6/V-7 블로커(uXRCE-DDS)`
+**실적**: Phase A~F코드100% + D+(셰르파+호스 6,981줄) + 659테스트PASS + PX4빌드✅ + Zenoh✅
 
 ## 병렬 개발 프로토콜
 
