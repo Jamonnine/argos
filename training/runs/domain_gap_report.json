@@ -1,0 +1,33 @@
+{
+  "evaluation_date": "2026-03-23T03:01:00.461400",
+  "model": "training/runs/synfire_finetune/weights/best.pt",
+  "synfire_val": {
+    "mAP50": 0.7218,
+    "mAP50_95": 0.3942,
+    "precision": 0.7594,
+    "recall": 0.6558,
+    "dataset": "SYN-FIRE (val)",
+    "images": 0
+  },
+  "dfire_test": {
+    "mAP50": 0.0,
+    "note": "미제공"
+  },
+  "flame_augmented": {
+    "mAP50": 0.0,
+    "note": "미제공"
+  },
+  "domain_gap": {
+    "mAP50_synthetic": 0.7218,
+    "mAP50_real": 0.0,
+    "mAP50_drop": 0.7218,
+    "relative_drop_pct": 100.0,
+    "severity": "HIGH",
+    "recommendation": "도메인 갭 심각. D-Fire 실데이터 혼합 필수 (실제:합성 = 8:2 이상)"
+  },
+  "summary": {
+    "best_mAP50": 0.7218,
+    "worst_mAP50": 0.7218,
+    "datasets_evaluated": 1
+  }
+}
