@@ -73,6 +73,7 @@ setup(
             'lidar_degradation = argos_bringup.lidar_degradation_node:main',
             # S-D4: 드론 열화상 → 오케스트레이터 FireAlert 릴레이 (드론→UGV 핸드오프)
             'drone_fire_relay = argos_bringup.drone_fire_relay_node:main',
+            # S-D5: 이종 군집 편대 패턴 (횡대/종대/제대/포위) — FormationManager는 라이브러리, 노드 아님
         ],
     },
 )
