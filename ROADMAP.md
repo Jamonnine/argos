@@ -30,8 +30,8 @@
 4. 세션 종료: 이 파일 + argos-tutor.md 진도 갱신 → git commit → wsl --shutdown
 ```
 
-**현재 위치**: `Phase D+ 완료 → Phase E 합성데이터 실행 대기 + V-6/V-7 블로커(uXRCE-DDS)`
-**실적**: Phase A~F코드100% + D+(셰르파+호스 6,981줄) + 659테스트PASS + PX4빌드✅ + Zenoh✅
+**현재 위치**: `S-A1 Nav2 Goal SUCCEEDED + Phase D 전체완료 + V-5 성공 → S-A2~A4 + V-6/V-7 + E-SYN`
+**실적**: Phase A~F코드100% + D+D+전체완료 + **S-A1 Nav2 SUCCEEDED** + V-5 uXRCE-DDS + 748테스트PASS
 
 ## 병렬 개발 프로토콜
 
@@ -90,7 +90,7 @@ Phase A ─── Phase B ─── Phase C ────── Phase D ───
 
 | 세션 | 목표 | 핵심 작업 | 완료 기준 | 상태 |
 |------|------|----------|----------|------|
-| **S-A1** | Nav2 Goal 이동 | bt_navigator 활성화 대기 확보 → NavigateToPose goal 발행 → 목표 도달 | odom 위치가 goal 1m 이내 도달 | 🟡 |
+| **S-A1** | Nav2 Goal 이동 | bt_navigator 활성화 대기 확보 → NavigateToPose goal 발행 → 목표 도달 | odom 위치가 goal 1m 이내 도달 | ✅ Goal SUCCEEDED (0.50m) |
 | **S-A2** | 단일 로봇 자율탐색 | frontier_explorer → Nav2 goal 순차 이동 → 커버리지 증가 | 맵 커버리지 70%+ 달성 | ⬜ |
 | **S-A3** | 멀티로봇 협업탐색 | 2UGV+1Drone 동시 기동 → 오케스트레이터 임무 할당 → 영역 분할 | 3대 충돌 없이 동시 탐색 | ⬜ |
 | **S-A4** | 데모 녹화 + 릴리스 | OBS Studio 녹화 → GIF/MP4 → README 갱신 → GitHub Release v2.0 | 1분 이상 풀런 영상 확보 | ⬜ |
@@ -266,8 +266,10 @@ Phase A ─── Phase B ─── Phase C ────── Phase D ───
   ✅ Blueprint 리서치 Phase 1 (R1~R4) 완료
 
 2026 Q2 (4~6월) ══════════════════════════════════════════
-  [ ] V-5~V-7 잔여 실증 완료 (PX4 연결 + PlatformInterface + CBBA)
-  [ ] Phase D+ 셰르파 URDF + 호스 제약 모델링 (★★★ 핵심 차별점)
+  ✅ V-5 PX4↔ROS2 uXRCE-DDS 연결 성공 (2026-03-22)
+  ✅ Phase D 전체완료 (CBBA+핸드오프+PX4) + D+ 셰르파+호스 (2026-03-22)
+  ✅ S-A1 Nav2 Goal SUCCEEDED (2026-03-22)
+  [ ] V-6/V-7 PlatformInterface + CBBA Gazebo 실증
   [ ] Phase E 합성 데이터 (SYN-FIRE + FLAME Diffuser, 비용 0원)
   [ ] 국민안전발명챌린지 제출 (5~6월) — 독립 경로
   [ ] Kaggle P100으로 파인튜닝 실험

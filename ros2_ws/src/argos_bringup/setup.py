@@ -71,6 +71,8 @@ setup(
             'water_curtain = argos_bringup.water_curtain_node:main',
             # 방수포 분사 시 LiDAR 신뢰도 저하 시뮬레이션 (NFRI 실험 데이터 기반)
             'lidar_degradation = argos_bringup.lidar_degradation_node:main',
+            # S-D4: 드론 열화상 → 오케스트레이터 FireAlert 릴레이 (드론→UGV 핸드오프)
+            'drone_fire_relay = argos_bringup.drone_fire_relay_node:main',
         ],
     },
 )

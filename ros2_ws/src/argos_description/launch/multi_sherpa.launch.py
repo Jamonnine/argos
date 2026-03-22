@@ -297,7 +297,7 @@ def generate_sherpa_actions(name, x, y, z, pkg_dir, urdf_file, nav2_params, sher
             'use_sim_time': True,
             'robot_id': name,
             'robot_type': 'sherpa',
-            'capabilities': ['thermal', 'lidar', 'depth', 'imu', 'hose', 'water_curtain'],
+            'capabilities': ['has_thermal', 'lidar', 'depth', 'imu', 'hose', 'water_curtain'],
         }],
         output='screen',
     )

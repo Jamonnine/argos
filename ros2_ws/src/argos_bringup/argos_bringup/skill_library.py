@@ -180,7 +180,7 @@ class DetectFireSkill(AbstractRobotSkill):
                     'description': '최소 화점 픽셀 면적 (노이즈 필터)',
                 },
             },
-            required_capabilities=['thermal'],
+            required_capabilities=['has_thermal'],
             ros2_service='/hotspot_detector/detect',
         )
 
@@ -258,7 +258,7 @@ class RescueSkill(AbstractRobotSkill):
                     'description': '음성 탐지 센서 병행 사용 여부',
                 },
             },
-            required_capabilities=['thermal', 'camera'],
+            required_capabilities=['has_thermal', 'camera'],
             ros2_service='/victim_detector/search',
         )
 

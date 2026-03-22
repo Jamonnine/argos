@@ -248,7 +248,7 @@ def exploration_robot_group(robot_config, pkg_dir, urdf_file, nav2_params):
             'use_sim_time': True,
             'robot_id': name,
             'robot_type': 'ugv',
-            'capabilities': ['thermal', 'lidar', 'depth', 'imu'],
+            'capabilities': ['has_thermal', 'lidar', 'depth', 'imu'],
         }],
         output='screen',
     )

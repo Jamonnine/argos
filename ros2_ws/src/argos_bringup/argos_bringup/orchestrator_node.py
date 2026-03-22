@@ -56,6 +56,11 @@ from argos_bringup.validation_utils import (
     validate_robot_id, validate_severity, validate_danger_level,
     validate_timestamp, clamp_sensor,
 )
+from argos_bringup.cbba_allocator import (
+    CBBAAllocator,
+    RobotRecord as CbbaRobotRecord,
+    Task as CbbaTask,
+)
 
 
 # ── 소방 전술 모듈 (소방 전문가 권고) ──
@@ -371,6 +376,7 @@ class OrchestratorNode(LifecycleNode):
 
         self.get_logger().info(
             f'Orchestrator activated — {len(expected)} robots: {expected}')
+        self._init_cbba()
         return TransitionCallbackReturn.SUCCESS
 
     def on_deactivate(self, state: State) -> TransitionCallbackReturn:
@@ -567,7 +573,7 @@ class OrchestratorNode(LifecycleNode):
             self.stage = MissionState.STAGE_FIRE_RESPONSE
             self.fire_response_target = fire_pt
             self.get_logger().warn('Stage → FIRE_RESPONSE')
-            self._execute_fire_response(fire_pt, msg.severity)
+            self._execute_fire_response_cbba(fire_pt, msg.severity)
         elif self.stage == MissionState.STAGE_FIRE_RESPONSE:
             # 추가 화점: 더 심각하면 대응 대상 갱신
             severity_rank = {'low': 0, 'medium': 1, 'high': 2, 'critical': 3}
@@ -576,7 +582,7 @@ class OrchestratorNode(LifecycleNode):
             new_sev = severity_rank.get(msg.severity, 0)
             if new_sev > current_sev:
                 self.fire_response_target = fire_pt
-                self._execute_fire_response(fire_pt, msg.severity)
+                self._execute_fire_response_cbba(fire_pt, msg.severity)
                 self.get_logger().warn(
                     f'Fire escalation: {msg.severity} — re-dispatching')
 
@@ -1041,6 +1047,290 @@ class OrchestratorNode(LifecycleNode):
                 'resolution': f'{supply_robot}→hose_supply, {attack_robot}→fire_attack',
             }, ensure_ascii=False)
             self._hose_conflict_pub.publish(event_msg)
+
+    # ─────────────────── CBBA 통합 할당 ───────────────────
+
+    def _init_cbba(self):
+        """CBBA 할당기 초기화. on_activate에서 호출."""
+        self.allocator = CBBAAllocator(self.get_logger())
+        self._cbba_realloc_timer = self.create_timer(
+            10.0,  # 10초 주기 재할당 (소방 현장 동적 변화 대응)
+            self._cbba_periodic_realloc,
+        )
+        self._last_cbba_assignments = {}  # 마지막 할당 결과 캐시
+        self.get_logger().info('CBBA allocator initialized (realloc every 10s)')
+
+    def _convert_robots_to_cbba(self) -> list:
+        """오케스트레이터 RobotRecord → CBBA RobotRecord 변환.
+
+        comm_lost 로봇, hose_supply 전담 로봇은 제외.
+        호스 제약 반영: hose_remaining_m이 낮은 로봇은 먼 임무 비선호 (capability에 반영하지 않고,
+        오케스트레이터 측에서 할당 후 검증).
+        """
+        with self._robots_lock:
+            snapshot = dict(self.robots)
+
+        cbba_robots = []
+        for rid, r in snapshot.items():
+            if r.comm_lost:
+                continue
+            # hose_supply 전담은 CBBA 할당 대상에서 제외 (현 위치 고정)
+            if r.role == 'hose_supply':
+                continue
+
+            # pose 변환: PoseStamped → (x, y, z) 튜플
+            pose_tuple = None
+            if r.pose is not None:
+                try:
+                    p = r.pose.pose.position
+                    pose_tuple = (p.x, p.y, p.z)
+                except AttributeError:
+                    pose_tuple = None
+
+            cbba_robots.append(CbbaRobotRecord(
+                robot_id=rid,
+                capabilities=list(r.capabilities),
+                pose=pose_tuple,
+            ))
+
+        return cbba_robots
+
+    def _build_task_list(self, fire_pt=None, severity='medium') -> list:
+        """현재 상황을 CBBA Task 목록으로 변환.
+
+        소방 시나리오 임무 타입:
+          - inspect_fire: 화점 접근 진압 (UGV, thermal 필요)
+          - monitor: 화점 상공 감시 (드론, can_fly 필요)
+          - explore: 잔여 프론티어 탐색 (모든 로봇)
+          - rescue: 구조 대상 접근 (has_gripper 권장)
+        """
+        tasks = []
+        severity_to_priority = {
+            'low': 0.3, 'medium': 0.5, 'high': 0.8, 'critical': 1.0
+        }
+
+        # 1) 화재 대응 임무 (최우선)
+        if fire_pt is not None:
+            fire_priority = severity_to_priority.get(severity, 0.5)
+
+            # 지상 진압 임무 (UGV)
+            tasks.append(CbbaTask(
+                task_id='fire_suppress_ground',
+                location=(fire_pt.x, fire_pt.y, 0.0),
+                task_type='inspect_fire',
+                required_capabilities=['has_thermal'],
+                priority=fire_priority,
+            ))
+
+            # 항공 감시 임무 (드론)
+            tasks.append(CbbaTask(
+                task_id='fire_monitor_aerial',
+                location=(fire_pt.x, fire_pt.y, 8.0),
+                task_type='monitor',
+                required_capabilities=['can_fly'],
+                priority=fire_priority * 0.9,  # 진압보다 약간 낮은 우선순위
+            ))
+
+        # 2) 추가 화점 (fire_alerts에서 미처리 화점 추출)
+        if self.fire_alerts:
+            processed_locations = set()
+            if fire_pt:
+                processed_locations.add((round(fire_pt.x, 1), round(fire_pt.y, 1)))
+
+            for i, alert in enumerate(self.fire_alerts[-5:]):  # 최근 5건만
+                loc = alert.location.point
+                loc_key = (round(loc.x, 1), round(loc.y, 1))
+                if loc_key in processed_locations:
+                    continue
+                processed_locations.add(loc_key)
+
+                alert_priority = severity_to_priority.get(
+                    getattr(alert, 'severity', 'medium'), 0.5)
+                tasks.append(CbbaTask(
+                    task_id=f'fire_alert_{i}',
+                    location=(loc.x, loc.y, 0.0),
+                    task_type='inspect_fire',
+                    required_capabilities=['has_thermal'],
+                    priority=alert_priority * 0.8,
+                ))
+
+        # 3) 탐색 임무 (잔여 프론티어가 있는 경우)
+        with self._robots_lock:
+            snapshot = dict(self.robots)
+
+        total_frontiers = sum(r.frontiers_remaining for r in snapshot.values())
+        if total_frontiers > 0 and fire_pt is None:
+            for i, (rid, r) in enumerate(snapshot.items()):
+                if r.comm_lost or r.frontiers_remaining == 0:
+                    continue
+                tasks.append(CbbaTask(
+                    task_id=f'explore_{rid}',
+                    location=(0.0, 0.0, 0.0),
+                    task_type='explore',
+                    required_capabilities=[],
+                    priority=0.3,
+                ))
+
+        # 4) 구조 임무 (피해자 감지 시)
+        if self.victims_detected:
+            for i, victim in enumerate(self.victims_detected[-3:]):
+                v_pt = getattr(victim, 'location', None)
+                if v_pt is None:
+                    continue
+                tasks.append(CbbaTask(
+                    task_id=f'rescue_{i}',
+                    location=(v_pt.point.x, v_pt.point.y, 0.0),
+                    task_type='rescue',
+                    required_capabilities=[],
+                    priority=0.9,
+                ))
+
+        return tasks
+
+    def _apply_cbba_assignments(self, assignments: dict, fire_pt=None):
+        """CBBA 할당 결과를 실행: goal 발행, mission_lock 갱신.
+
+        Args:
+            assignments: {robot_id: CbbaTask} — CBBA 결과
+            fire_pt: 화재 위치 (Point) — primary_responder 결정용
+        """
+        with self._robots_lock:
+            for rid, task in assignments.items():
+                if rid not in self.robots:
+                    continue
+                r = self.robots[rid]
+
+                # 호스 길이 제약 사후 검증 (CBBA는 호스를 모름)
+                if r.hose_remaining_m >= 0:
+                    target_x, target_y = task.location[0], task.location[1]
+                    if not self._check_hose_depth(rid, target_x, target_y):
+                        self.get_logger().warn(
+                            f'CBBA 할당 거부: {rid} → {task.task_id} — 호스 부족')
+                        continue
+
+                # mission_lock 갱신
+                if task.task_type in ('inspect_fire', 'rescue'):
+                    r.mission_lock = 'fire_response' if 'fire' in task.task_type else 'rescue'
+                    r.assigned_target = Point(
+                        x=task.location[0], y=task.location[1], z=task.location[2])
+
+                # primary_responder 결정 (지상 진압 임무 할당자)
+                if task.task_id == 'fire_suppress_ground' and fire_pt is not None:
+                    self.primary_responder = rid
+                    self.get_logger().warn(
+                        f'CBBA PRIMARY RESPONDER: {rid} → {task.task_id}')
+
+        # 드론 웨이포인트 발행 (lock 밖에서)
+        for rid, task in assignments.items():
+            if task.task_type == 'monitor':
+                topic = f'/{rid}/drone/waypoint'
+                if rid not in self.drone_wp_pubs:
+                    self.drone_wp_pubs[rid] = self.create_publisher(
+                        PoseStamped, topic, 10)
+                wp = PoseStamped()
+                wp.header.stamp = self.get_clock().now().to_msg()
+                wp.header.frame_id = 'map'
+                wp.pose.position.x = task.location[0]
+                wp.pose.position.y = task.location[1]
+                wp.pose.position.z = task.location[2]
+                self.drone_wp_pubs[rid].publish(wp)
+                self.get_logger().warn(
+                    f'CBBA DRONE {rid} → ({task.location[0]:.1f}, '
+                    f'{task.location[1]:.1f}, {task.location[2]:.1f})')
+
+        self._last_cbba_assignments = dict(assignments)
+        self.get_logger().info(
+            f'CBBA 할당 완료: {len(assignments)}대 배정 '
+            f'({", ".join(f"{k}→{v.task_id}" for k, v in assignments.items())})')
+
+    def _execute_fire_response_cbba(self, fire_pt, severity: str):
+        """CBBA 기반 화재 대응 — _execute_fire_response의 CBBA 버전.
+
+        기존 최근접-UGV 로직 대신 CBBA 경매로 최적 할당 결정.
+        소방 전술(FIRE_TACTICS) 체크는 기존 로직 재사용.
+        """
+        self._current_fire_severity = severity
+
+        # 소방 전술 체크 (기존 로직 유지)
+        fire_type = getattr(
+            self.fire_alerts[-1] if self.fire_alerts else None,
+            'fire_type', 'general') or 'general'
+        tactics = FIRE_TACTICS.get(fire_type, FIRE_TACTICS['general'])
+
+        if not tactics['robot_capable']:
+            self.get_logger().error(
+                f'[TTS] 화재 유형 "{fire_type}" — 로봇 자율 대응 불가. '
+                f'지휘관 즉시 현장 확인 요망.')
+        if tactics['human_mandatory']:
+            self.get_logger().error(
+                f'[TTS] 사람만 수행 가능한 작업: {tactics["human_mandatory"]} — '
+                f'지휘관에게 전달.')
+
+        # CBBA 할당
+        cbba_robots = self._convert_robots_to_cbba()
+        tasks = self._build_task_list(fire_pt=fire_pt, severity=severity)
+
+        if not cbba_robots or not tasks:
+            self.get_logger().warn('CBBA: 가용 로봇 또는 임무 없음 — fallback to nearest')
+            self._execute_fire_response(fire_pt, severity)
+            return
+
+        assignments = self.allocator.allocate(cbba_robots, tasks)
+        self._apply_cbba_assignments(assignments, fire_pt=fire_pt)
+
+        # 심각도별 대응 (기존 로직)
+        if severity == 'critical':
+            self.get_logger().error(
+                '[TTS] 긴급: 화재 CRITICAL 판정 — 즉시 진압 필요.')
+
+        # 화재 확산 추정
+        spread_info = self._estimate_fire_spread()
+        if spread_info['trend'] == 'growing' and spread_info['spread_rate'] > 10.0:
+            self.get_logger().error(
+                f'[TTS] 화재 급속 확산: {spread_info["spread_rate"]:.1f}K/s')
+
+    def _cbba_periodic_realloc(self):
+        """주기적 CBBA 재할당 (10초 주기).
+
+        실행 조건:
+          - FIRE_RESPONSE 단계이고 활성 화재가 있을 때
+        목적: 로봇 탈락·추가 화점·호스 고갈 등 동적 변화에 대응.
+        """
+        if not hasattr(self, 'allocator'):
+            return
+
+        from argos_interfaces.msg import MissionState as MS
+        if self.stage != MS.STAGE_FIRE_RESPONSE:
+            return
+
+        if self.fire_response_target is None:
+            return
+
+        # 재할당
+        cbba_robots = self._convert_robots_to_cbba()
+        tasks = self._build_task_list(
+            fire_pt=self.fire_response_target,
+            severity=getattr(self, '_current_fire_severity', 'medium'),
+        )
+
+        if not cbba_robots or not tasks:
+            return
+
+        new_assignments = self.allocator.allocate(cbba_robots, tasks)
+
+        # 변화 감지: 할당이 바뀌었을 때만 적용
+        if self._assignments_changed(new_assignments):
+            self.get_logger().info('CBBA 재할당: 상황 변화 감지 → 임무 재분배')
+            self._apply_cbba_assignments(new_assignments, fire_pt=self.fire_response_target)
+
+    def _assignments_changed(self, new_assignments: dict) -> bool:
+        """이전 할당과 비교하여 변화 여부 판단."""
+        if not self._last_cbba_assignments:
+            return bool(new_assignments)
+
+        old_map = {k: v.task_id for k, v in self._last_cbba_assignments.items()}
+        new_map = {k: v.task_id for k, v in new_assignments.items()}
+        return old_map != new_map
 
     def _cancel_goal(self, robot_id: str):
         """지정 로봇에 정지 명령 발행 (목표 취소).

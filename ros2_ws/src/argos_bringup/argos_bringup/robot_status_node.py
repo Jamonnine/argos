@@ -41,7 +41,7 @@ class RobotStatusPublisher(Node):
         # --- Parameters ---
         self.declare_parameter('robot_id', '')
         self.declare_parameter('robot_type', 'ugv')
-        self.declare_parameter('capabilities', ['thermal', 'lidar', 'depth', 'imu'])
+        self.declare_parameter('capabilities', ['has_thermal', 'lidar', 'depth', 'imu'])
         self.declare_parameter('battery_drain_rate', 0.02)  # %/초 (시뮬레이션 감쇠)
         self.declare_parameter('map_frame', 'map')
         self.declare_parameter('base_frame', 'base_footprint')
