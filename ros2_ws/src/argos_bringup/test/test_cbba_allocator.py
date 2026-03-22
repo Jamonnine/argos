@@ -314,3 +314,85 @@ class TestHeterogeneousFleet:
         assert result['drone1'].task_id == 'm'
         # UGV는 explore
         assert result['argos1'].task_id == 'e'
+
+
+# ── 번들 할당 (Phase E) ────────────────────────────────────────────────────────
+
+class TestBundleAllocation:
+    """allocate_bundles() — 로봇당 N개 임무 할당 검증."""
+
+    def test_bundle_default_backward_compatible(self):
+        """max_bundle_size=1(기본값)일 때 allocate()와 동일한 결과."""
+        alloc = CBBAAllocator()
+        r1 = make_ugv('argos1', x=0.0)
+        r2 = make_ugv('argos2', x=10.0)
+        t1 = make_task('t1', x=1.0)
+        t2 = make_task('t2', x=9.0)
+
+        # allocate() 결과
+        single = alloc.allocate([r1, r2], [t1, t2])
+        # allocate_bundles(max_bundle_size=1) 결과
+        bundles = alloc.allocate_bundles([r1, r2], [t1, t2], max_bundle_size=1)
+
+        # 번들 결과는 list[Task]이므로 첫 번째 요소 비교
+        bundle_first = {rid: tlist[0] for rid, tlist in bundles.items()}
+        assert single == bundle_first
+
+    def test_bundle_size_2_assigns_two_tasks(self):
+        """번들 크기=2: 로봇 1대가 임무 2개를 받는다."""
+        alloc = CBBAAllocator(max_bundle_size=2)
+        robot = make_ugv('argos1', x=0.0)
+        t1 = make_task('t1', x=1.0)
+        t2 = make_task('t2', x=2.0)
+
+        bundles = alloc.allocate_bundles([robot], [t1, t2])
+
+        assert 'argos1' in bundles
+        # 단일 로봇이 2개 임무를 모두 할당받아야 함
+        assert len(bundles['argos1']) == 2
+        assigned_ids = {t.task_id for t in bundles['argos1']}
+        assert assigned_ids == {'t1', 't2'}
+
+    def test_bundle_respects_capability(self):
+        """번들 할당 시 capability 필터가 정상 동작한다.
+
+        드론(can_fly): monitor 2개 → 2개 받음.
+        UGV: monitor 임무 capability 미충족 → 할당 없음.
+        """
+        alloc = CBBAAllocator(max_bundle_size=2)
+        ugv = make_ugv('argos1', x=0.0)
+        drone = make_drone('drone1', x=0.5)
+        m1 = make_task('m1', x=1.0, task_type='monitor', required=['can_fly'])
+        m2 = make_task('m2', x=2.0, task_type='monitor', required=['can_fly'])
+
+        bundles = alloc.allocate_bundles([ugv, drone], [m1, m2], max_bundle_size=2)
+
+        # UGV는 monitor 임무 수행 불가 → 번들 없음
+        assert 'argos1' not in bundles
+        # 드론은 2개 모두 할당
+        assert 'drone1' in bundles
+        assert len(bundles['drone1']) == 2
+        assigned_ids = {t.task_id for t in bundles['drone1']}
+        assert assigned_ids == {'m1', 'm2'}
+
+    def test_bundle_no_duplicate_tasks(self):
+        """같은 임무가 복수 로봇 번들에 중복 배정되지 않는다."""
+        alloc = CBBAAllocator(max_bundle_size=2)
+        r1 = make_ugv('argos1', x=0.0)
+        r2 = make_ugv('argos2', x=1.0)
+        tasks = [make_task(f't{i}', x=float(i)) for i in range(3)]
+
+        bundles = alloc.allocate_bundles([r1, r2], tasks, max_bundle_size=2)
+
+        all_assigned = [
+            t.task_id
+            for tlist in bundles.values()
+            for t in tlist
+        ]
+        # 중복 없음: 각 임무는 최대 1개 로봇에게만 배정
+        assert len(all_assigned) == len(set(all_assigned))
+
+    def test_max_bundle_size_constructor_invalid(self):
+        """max_bundle_size < 1 생성자 → ValueError."""
+        with pytest.raises(ValueError):
+            CBBAAllocator(max_bundle_size=0)
