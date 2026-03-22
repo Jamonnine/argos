@@ -5,8 +5,10 @@
 ![ROS 2](https://img.shields.io/badge/ROS_2-Jazzy-blue)
 ![Gazebo](https://img.shields.io/badge/Gazebo-Harmonic-orange)
 ![License](https://img.shields.io/badge/License-Apache_2.0-green)
-![Robots](https://img.shields.io/badge/Robots-UGV_×3_+_Drone_×1-purple)
+![Robots](https://img.shields.io/badge/Robots-UGV_×3_+_Drone_×2_+_Sherpa-purple)
+![Tests](https://img.shields.io/badge/Tests-785_passed-brightgreen)
 ![Portal](https://img.shields.io/badge/Portal-daegufire.ai.kr/argos-teal)
+![Code](https://img.shields.io/badge/Code-15K+_lines-informational)
 
 이종 군집 소방 로봇 오케스트레이션 플랫폼.
 드론 + UGV(차량형) + 보행형 로봇이 **한 팀**으로 화재 현장을 자율 탐색하고, 화점을 감지하며, 실시간으로 정보를 공유하는 시스템.
@@ -17,7 +19,7 @@
 
 ## Highlights
 
-- **이종 군집 로봇**: UGV 3대 + 드론 1대가 동시에 환경을 탐색
+- **이종 군집 로봇**: UGV 3대 + 드론 2대 + HR-셰르파(소방로봇) — CBBA 경매 기반 최적 임무 할당
 - **자율 프론티어 탐색**: SLAM 맵에서 미탐색 경계를 자동 감지, 최적 프론티어로 이동
 - **열화상 화점 감지**: L8 카메라 시뮬레이션 + 적응형 임계값 기반 화점 분류 (low/medium/high/critical)
 - **중앙 지휘 시스템**: 오케스트레이터가 로봇 등록, 임무 할당, 긴급 정지, 단계 전환을 관리
@@ -29,6 +31,12 @@
 - **LifecycleNode 동기 제어**: 핵심 4노드 lifecycle 전환 — lifecycle_manager로 클린 시작/종료 보장
 - **MCP 로봇 서버**: Claude/MCP 클라이언트에서 자연어로 로봇 제어 가능 (SkillLibrary 동적 쿼리)
 - **지휘관 승인 워크플로우**: PAUSED 상태에서 `/orchestrator/resume` 명시 승인 후 RETURNING 전환
+- **HR-셰르파 소방로봇**: NFRI 공식 제원(3.1×2.0×1.9m, 6WD, 2650LPM) 기반 URDF + 호스 물리 모델 (100m 릴, 꺾임 감지, 충수 후진 금지)
+- **CBBA 태스크 할당**: Consensus-Based Bundle Algorithm — 이종 로봇 capabilities 기반 경매 할당, 번들 크기 N 지원
+- **드론→UGV 화재 핸드오프**: 드론 열화상 감지 → FireAlert → CBBA → UGV 진압 + 드론 감시 자동 배정
+- **PX4 드론 통합**: uXRCE-DDS Agent 연결, PlatformInterface 추상화로 UGV/드론/셰르파 통합 제어
+- **편대 패턴**: 횡대/종대/제대/포위 4종 편대 + 충돌 검사
+- **YOLOv8 화재 탐지**: SYN-FIRE 합성 데이터 파인튜닝 (mAP50=0.715, AGPL 분리 패키지)
 
 ## Architecture
 
