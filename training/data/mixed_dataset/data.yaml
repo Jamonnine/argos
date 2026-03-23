@@ -1,0 +1,7 @@
+names:
+- smoke
+- fire
+nc: 2
+path: /mnt/c/Users/USER/Desktop/SUPERAGENT/projects/argos/training/data/mixed_dataset
+train: train/images
+val: val/images
