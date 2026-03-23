@@ -126,10 +126,11 @@ class TestMPPIController:
             assert c in critics, f'Missing critic: {c}'
 
     def test_controller_frequency(self, nav2_config):
-        """MPPI는 고빈도 제어가 효과적 (≥15Hz)."""
+        """MPPI 제어 주파수 범위 검증 (G-2 RTF 최적화 후 하한 10Hz)."""
         cs = nav2_config['controller_server']['ros__parameters']
         freq = cs['controller_frequency']
-        assert freq >= 15.0, f'controller_frequency={freq} too low for MPPI'
+        # G-2 RTF: was 15.0 — RTF 최적화로 10Hz로 하향 (MPPI 최소 허용 범위)
+        assert freq >= 10.0, f'controller_frequency={freq} too low for MPPI'
 
     def test_diff_drive_no_lateral(self, nav2_config):
         """차동구동: 횡방향 속도 노이즈 = 0."""

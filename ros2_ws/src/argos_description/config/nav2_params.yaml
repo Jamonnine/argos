@@ -54,7 +54,7 @@ controller_server:
   ros__parameters:
     # Jazzy: DDC가 TwistStamped만 수신 → 전체 velocity chain TwistStamped 통일
     enable_stamped_cmd_vel: true
-    controller_frequency: 20.0   # MPPI는 고빈도 제어가 효과적 (DWB 10Hz → 20Hz)
+    controller_frequency: 10.0   # G-2 RTF: was 20.0 | MPPI는 고빈도 제어가 효과적 (DWB 10Hz → 20Hz)
     min_x_velocity_threshold: 0.001
     min_theta_velocity_threshold: 0.001
     failure_tolerance: 0.3
@@ -155,8 +155,8 @@ controller_server:
 local_costmap:
   local_costmap:
     ros__parameters:
-      update_frequency: 5.0
-      publish_frequency: 2.0
+      update_frequency: 2.0  # G-2 RTF: was 5.0
+      publish_frequency: 1.0  # G-2 RTF: was 2.0
       # frame_prefix 방식: <robot_namespace>/ → argos1/ 런타임 치환
       global_frame: <robot_namespace>/odom
       robot_base_frame: <robot_namespace>/base_footprint
@@ -192,8 +192,8 @@ local_costmap:
 global_costmap:
   global_costmap:
     ros__parameters:
-      update_frequency: 1.0
-      publish_frequency: 1.0
+      update_frequency: 0.5  # G-2 RTF: was 1.0
+      publish_frequency: 0.5  # G-2 RTF: was 1.0
       global_frame: map
       # frame_prefix 방식: <robot_namespace>/ → argos1/ 런타임 치환
       robot_base_frame: <robot_namespace>/base_footprint

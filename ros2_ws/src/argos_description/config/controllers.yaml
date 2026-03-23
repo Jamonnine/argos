@@ -8,7 +8,7 @@
 
 /**/controller_manager:
   ros__parameters:
-    update_rate: 50  # Hz
+    update_rate: 25  # G-2 RTF: was 50 | Hz
 
     joint_state_broadcaster:
       type: joint_state_broadcaster/JointStateBroadcaster
@@ -42,7 +42,7 @@
     angular.z.max_acceleration: 3.0
 
     # 오도메트리
-    publish_rate: 50.0
+    publish_rate: 25.0  # G-2 RTF: was 50.0
     odom_frame_id: "odom"
     base_frame_id: "base_footprint"
     pose_covariance_diagonal: [0.001, 0.001, 0.001, 0.001, 0.001, 0.01]

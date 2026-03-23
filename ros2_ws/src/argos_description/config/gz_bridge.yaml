@@ -1,6 +1,7 @@
 # Gazebo ↔ ROS 2 토픽 브리지 설정
 # =================================
 # ros_gz_bridge가 이 설정을 읽어 Gazebo 토픽을 ROS 2 토픽으로 변환.
+# G-2 RTF 최적화: 비필수 토픽 비활성 시 depth_camera/points 제거 가능
 
 # LiDAR
 - topic_name: "/scan"

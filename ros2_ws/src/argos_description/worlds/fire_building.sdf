@@ -73,9 +73,9 @@
 
     <!-- 물리 엔진 설정 -->
     <physics name="default_physics" type="ode">
-      <max_step_size>0.001</max_step_size>
+      <max_step_size>0.002</max_step_size>  <!-- G-2 RTF: was 0.001 -->
       <real_time_factor>1.0</real_time_factor>
-      <real_time_update_rate>1000</real_time_update_rate>
+      <real_time_update_rate>500</real_time_update_rate>  <!-- G-2 RTF: was 1000 -->
     </physics>
 
     <!-- ===================== 조명 ===================== -->
@@ -425,9 +425,9 @@
           <!-- 개별 파티클 크기 -->
           <particle_size>0.35 0.35 0.35</particle_size>
           <!-- 초당 파티클 수 (소형 화재) -->
-          <rate>20</rate>
+          <rate>10</rate>  <!-- G-2 RTF: was 20 -->
           <!-- 파티클 수명 (초) -->
-          <lifetime>3</lifetime>
+          <lifetime>2.01</lifetime>  <!-- G-2 RTF: was 3 -->
           <!-- 상승 속도 범위 -->
           <min_velocity>0.4</min_velocity>
           <max_velocity>0.8</max_velocity>
@@ -456,9 +456,9 @@
           <emitting>true</emitting>
           <size>0.20 0.20 0</size>
           <particle_size>0.15 0.15 0.15</particle_size>
-          <rate>25</rate>
+          <rate>12</rate>  <!-- G-2 RTF: was 25 -->
           <!-- 불꽃은 짧게 소멸 -->
-          <lifetime>0.8</lifetime>
+          <lifetime>0.54</lifetime>  <!-- G-2 RTF: was 0.8 -->
           <min_velocity>0.6</min_velocity>
           <max_velocity>1.2</max_velocity>
           <scale_rate>0.2</scale_rate>
@@ -490,9 +490,9 @@
           <!-- 대형 화재: 파티클 크기 크게 -->
           <particle_size>0.55 0.55 0.55</particle_size>
           <!-- 대형 화재: 발생률 2배 -->
-          <rate>40</rate>
+          <rate>20</rate>  <!-- G-2 RTF: was 40 -->
           <!-- 대형 화재: 수명 길게 (연기가 오래 머묾) -->
-          <lifetime>5</lifetime>
+          <lifetime>3.35</lifetime>  <!-- G-2 RTF: was 5 -->
           <min_velocity>0.5</min_velocity>
           <max_velocity>1.2</max_velocity>
           <!-- 빠르게 퍼지는 연기 -->
@@ -520,8 +520,8 @@
           <size>0.35 0.35 0</size>
           <particle_size>0.25 0.25 0.25</particle_size>
           <!-- 대형 화재: 불꽃 발생률 높음 -->
-          <rate>50</rate>
-          <lifetime>1.2</lifetime>
+          <rate>25</rate>  <!-- G-2 RTF: was 50 -->
+          <lifetime>0.80</lifetime>  <!-- G-2 RTF: was 1.2 -->
           <min_velocity>0.8</min_velocity>
           <max_velocity>2.0</max_velocity>
           <scale_rate>0.35</scale_rate>

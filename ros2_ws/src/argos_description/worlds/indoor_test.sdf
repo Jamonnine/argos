@@ -54,9 +54,9 @@
 
     <!-- 물리 엔진 설정 -->
     <physics name="default_physics" type="ode">
-      <max_step_size>0.001</max_step_size>
+      <max_step_size>0.002</max_step_size>  <!-- G-2 RTF: was 0.001 -->
       <real_time_factor>1.0</real_time_factor>
-      <real_time_update_rate>1000</real_time_update_rate>
+      <real_time_update_rate>500</real_time_update_rate>  <!-- G-2 RTF: was 1000 -->
     </physics>
 
     <!-- 조명 -->

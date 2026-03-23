@@ -73,7 +73,7 @@
 
         <always_on>true</always_on>
         <!-- 5Hz: 어노테이션 수집 목적이므로 30fps 불필요 -->
-        <update_rate>5</update_rate>
+        <update_rate>2</update_rate>  <!-- G-2 RTF: was 5 -->
 
         <topic>${topic}</topic>
         <gz_frame_id>${camera_name}_optical_link</gz_frame_id>
