@@ -117,10 +117,19 @@ class ScenarioRunner(Node):
                 self._advance(self.DRONE_TAKEOFF)
                 self.get_logger().info(
                     'All robots registered. Commanding drone takeoff...')
-                # M7: TODO — 이륙 실패 시 재시도/중단 로직 없음.
-                #            _call_service가 False 반환 시 재시도(최대 3회) 또는
-                #            시나리오 ABORT 처리 권장.
-                self._call_service(self.takeoff_client, 'Drone takeoff')
+                # M7: RESOLVED — 이륙 최대 3회 재시도 + 실패 시 경고 (시나리오 계속)
+                MAX_TAKEOFF_RETRIES = 3
+                takeoff_success = False
+                for attempt in range(MAX_TAKEOFF_RETRIES):
+                    if self._call_service(self.takeoff_client, 'Drone takeoff'):
+                        takeoff_success = True
+                        break
+                    self.get_logger().warn(
+                        f'Takeoff attempt {attempt + 1}/{MAX_TAKEOFF_RETRIES} failed')
+                if not takeoff_success:
+                    self.get_logger().error(
+                        f'Takeoff FAILED after {MAX_TAKEOFF_RETRIES} attempts — '
+                        f'continuing without drone')
 
         # --- Phase 1: 드론 이륙 + 웨이포인트 ---
         elif self.phase == self.DRONE_TAKEOFF:

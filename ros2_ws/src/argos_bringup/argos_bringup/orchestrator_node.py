@@ -199,10 +199,10 @@ class OrchestratorNode(LifecycleNode):
             durability=DurabilityPolicy.TRANSIENT_LOCAL,
             depth=10,
         )
-        # H9: TODO — robot_status 구독자가 TRANSIENT_LOCAL 사용 시 발행자도 동일 설정 필요
-        #            (현재 VOLATILE 기본값 → late-joining subscriber 초기 상태 수신 못함)
+        # H9: RESOLVED — TRANSIENT_LOCAL 추가하여 late-joining subscriber 초기 상태 수신 보장
         status_qos = QoSProfile(
             reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
             depth=10,
             deadline=Duration(seconds=5),
         )

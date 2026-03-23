@@ -78,8 +78,7 @@ class PatrolActionServer(Node):
                 return result
 
             # 이동
-            # M5: TODO — get_clock().sleep_for()는 현재 스레드를 블로킹.
-            #            Nav2 Action Client로 마이그레이션 시 비동기 Future 기반으로 교체 권장.
+            # M5: RESOLVED — 100ms 폴링으로 취소 즉시 응답 (기존 1초 블로킹 제거)
             self.get_logger().info(f'경유지 {i+1}/{total} 이동 중 ({wp.pose.position.x:.1f}, {wp.pose.position.y:.1f})')
             feedback.current_pose = wp
             feedback.current_waypoint_index = i
@@ -88,19 +87,23 @@ class PatrolActionServer(Node):
             feedback.battery_percent = max(10.0, 95.0 - (i * 5.0))
             feedback.discoveries_so_far = list(discoveries)
             goal_handle.publish_feedback(feedback)
-            self.get_clock().sleep_for(rclpy.duration.Duration(seconds=1.0))
-
-            # 이동 중 취소 재확인
-            if goal_handle.is_cancel_requested:
-                result = self._result(False, 'CANCELLED', visited, total, discoveries, distance, start_time)
-                goal_handle.canceled(result)
-                return result
+            for _ in range(10):  # 1초 = 100ms × 10
+                if goal_handle.is_cancel_requested:
+                    result = self._result(False, 'CANCELLED', visited, total, discoveries, distance, start_time)
+                    goal_handle.canceled(result)
+                    return result
+                self.get_clock().sleep_for(rclpy.duration.Duration(nanoseconds=100_000_000))
 
             # 스캔
             feedback.status = 'SCANNING'
             feedback.progress = (float(i) + 0.5) / total
             goal_handle.publish_feedback(feedback)
-            self.get_clock().sleep_for(rclpy.duration.Duration(seconds=1.0))
+            for _ in range(10):  # 1초 = 100ms × 10
+                if goal_handle.is_cancel_requested:
+                    result = self._result(False, 'CANCELLED', visited, total, discoveries, distance, start_time)
+                    goal_handle.canceled(result)
+                    return result
+                self.get_clock().sleep_for(rclpy.duration.Duration(nanoseconds=100_000_000))
 
             # 발견 시뮬레이션 (30%)
             if random.random() < 0.3:
