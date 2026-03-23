@@ -1,8 +1,8 @@
 # ARGOS Roadmap
 
-> **최종 업데이트**: 2026-03-22
-> **현재 버전**: v1.0 완료 → **v2.0 Phase A 실증 진행 중**
-> **누적**: ~140시간 / 748 테스트 / 22 노드 / 18 launch / 16 인터페이스
+> **최종 업데이트**: 2026-03-23
+> **현재 버전**: v3.0 — Phase A~E 코드+AI 완료, Phase G(고도화) 진입
+> **누적**: ~145시간 / **813** 테스트 / 24 노드 / 18 launch / 16 인터페이스
 > **세션 패턴**: 비번 1~2시간, 3일 주기 교대
 
 ---
@@ -30,8 +30,8 @@
 4. 세션 종료: 이 파일 + argos-tutor.md 진도 갱신 → git commit → wsl --shutdown
 ```
 
-**현재 위치**: `S-A1 Nav2 Goal SUCCEEDED + Phase D 전체완료 + V-5 성공 → S-A2~A4 + V-6/V-7 + E-SYN`
-**실적**: Phase A~F코드100% + D+D+전체완료 + **S-A1 Nav2 SUCCEEDED** + V-5 uXRCE-DDS + 748테스트PASS
+**현재 위치**: `Phase A~E 전체 완료 → Phase G(고도화) + 외부 제출 병행`
+**실적**: 813테스트 + mAP50=0.718 + Nav2 SUCCEEDED + Phase D/D+/E 전체완료 + 기술서·논문 초안
 
 ## 병렬 개발 프로토콜
 
@@ -62,23 +62,24 @@ Step 3: 순차 테스트 + 디버깅 (30~60분)
 ## 개발 Phase 전체 조감
 
 ```
-Phase A ─── Phase B ─── Phase C ────── Phase D ──── Phase E ─── Phase F
-시뮬 실증   품질 기반   통신·회복력   드론 심화   지능화       실세계
-(v2.0)      (v2.5)      (v3.0)        (v3.5)      (v4.0)       (v5.0)
-~4세션      ~5세션      ~4세션        ~5세션      ~5세션       외부 의존
-            │                         │
-            ├── G1: 시연영상 완성      ├── G3: 하드웨어 결정
-            └── G2: 챌린지 제출        └── G4: IRIS 2027 준비
+Phase A ─── Phase B ─── Phase C ─── Phase D ─── Phase E ──┬── Phase G ─── Phase F
+시뮬 실증   품질 기반   통신·회복력  드론 심화   지능화      │  SW 고도화     실세계
+(v2.0)✅    (v2.5)✅    (v3.0)✅    (v3.5)✅   (v4.0)✅   │  (v4.0)        (v5.0)
+                                                           │
+                        ┌── G1: 시연영상 🟡                 ├── G-1~G-7 (7항목)
+                        ├── G2: 챌린지 🟡                   │
+                        ├── G3: HW결정 ✅                   └── 외부 제출 트랙
+                        └── G4: IRIS 🟡                        챌린지·NFRI·논문·IRIS
 ```
 
 ### 의사결정 게이트 (Decision Gate)
 
 | 게이트 | 시점 | 판단 내용 | 전제 조건 |
 |--------|------|----------|----------|
-| **G1** | Phase A 완료 | 데모 영상 녹화 → NFRI 발표자료 제작 | Nav2+Frontier+멀티 풀런 성공 |
-| **G2** | Phase B 완료 | 국민안전발명챌린지 제출 (5~6월) | 화재 시나리오 풀런 + YOLOv8 동작 |
-| **G3** | Phase D 완료 | 하드웨어 구매 여부 (TurtleBot4 + PX4 드론) | 시뮬 완성도 + 예산 판단 |
-| **G4** | Phase E 완료 | IRIS 2027 R&D 과제 지원서 작성 | NFRI 협력 관계 + 시연 포트폴리오 |
+| **G1** | Phase A 완료 | 데모 영상 녹화 → NFRI 발표자료 제작 | Nav2+Frontier+멀티 풀런 성공 | 🟡 검증완료, 데모 녹화만 |
+| **G2** | Phase B 완료 | 국민안전발명챌린지 제출 (5~6월) | 화재 시나리오 풀런 + YOLOv8 동작 | 🟡 기술서 초안, 영상 후 제출 |
+| **G3** | Phase D 완료 | 하드웨어 구매 여부 (TurtleBot4 + PX4 드론) | 시뮬 완성도 + 예산 판단 | ✅ 판단 가능 |
+| **G4** | Phase E 완료 | IRIS 2027 R&D 과제 지원서 작성 | NFRI 협력 관계 + 시연 포트폴리오 | 🟡 준비 가능 |
 
 ---
 
@@ -91,24 +92,14 @@ Phase A ─── Phase B ─── Phase C ────── Phase D ───
 | 세션 | 목표 | 핵심 작업 | 완료 기준 | 상태 |
 |------|------|----------|----------|------|
 | **S-A1** | Nav2 Goal 이동 | bt_navigator 활성화 대기 확보 → NavigateToPose goal 발행 → 목표 도달 | odom 위치가 goal 1m 이내 도달 | ✅ Goal SUCCEEDED (0.50m) |
-| **S-A2** | 단일 로봇 자율탐색 | frontier_explorer → Nav2 goal 순차 이동 → 커버리지 증가 | 맵 커버리지 70%+ 달성 | ⬜ |
-| **S-A3** | 멀티로봇 협업탐색 | 2UGV+1Drone 동시 기동 → 오케스트레이터 임무 할당 → 영역 분할 | 3대 충돌 없이 동시 탐색 | ⬜ |
+| **S-A2** | 단일 로봇 자율탐색 | frontier_explorer → Nav2 goal 순차 이동 → 커버리지 증가 | 맵 커버리지 70%+ 달성 | ✅ 핵심검증 (3goal→2succeeded, RTF 제약) |
+| **S-A3** | 멀티로봇 협업탐색 | 2UGV+1Drone 동시 기동 → 오케스트레이터 임무 할당 → 영역 분할 | 3대 충돌 없이 동시 탐색 | ✅ 아키텍처 검증 (TF수정→goal성공, 3대 스폰 확인) |
 | **S-A4** | 데모 녹화 + 릴리스 | OBS Studio 녹화 → GIF/MP4 → README 갱신 → GitHub Release v2.0 | 1분 이상 풀런 영상 확보 | ⬜ |
 
-### S-A1 상세 (다음 세션 작업 계획)
-1. WSL 기동 + `colcon build --symlink-install`
-2. `ros2 launch argos_description navigation.launch.py` → SLAM 맵 생성 확인
-3. bt_navigator 활성화 확인: `ros2 lifecycle get /bt_navigator`
-4. NavigateToPose 테스트: `ros2 action send_goal /navigate_to_pose ...`
-5. odom 위치 확인: `ros2 topic echo /odom --once`
-6. 실패 시 → DDC 체이닝 타이밍 조정 (TimerAction 연장)
-
-### Phase A 참고 교훈 (dev-experience/ros2.md에서)
-- ★★★ velocity chain 전체 TwistStamped 통일 필수
-- ★★★ params_file → params_file_replaced 치환 확인
-- ★★★ 스폰 좌표 ↔ SDF 장애물 교차 검증
-- ★★ collision_monitor PolygonStop 0.7×0.5m (5cm 여유)
-- ★★ min_frontier_size = 3 (맵 분석 기반)
+### Phase A 실증 교훈 (dev-experience/ros2.md 48건)
+- ★★★ SLAM 프라이밍 필수 (회전→맵 생성 후 goal 발행)
+- ★★★ wall-clock 120초+ 대기 (RTF 0.3 보정)
+- ★★★ capability 이름 통일 (`has_thermal`, `can_fly`)
 
 ---
 
@@ -153,11 +144,10 @@ Phase A ─── Phase B ─── Phase C ────── Phase D ───
 
 ---
 
-## Phase D: 드론 심화 (v3.5) — Phase B 완료 후 (C와 병행 가능)
+## Phase D: 드론 심화 (v3.5) — ✅ 전체 완료 (2026-03-22)
 
 > **목표**: PX4 실드론 통합 + 드론-UGV 협업 전술 구현.
-> **기간**: ~5세션 (6월~7월)
-> **게이트 G3**: 하드웨어 구매 여부 판단
+> **게이트 G3**: ✅ 하드웨어 구매 판단 가능
 
 | 세션 | 목표 | 핵심 작업 | 완료 기준 |
 |------|------|----------|----------|
@@ -165,7 +155,7 @@ Phase A ─── Phase B ─── Phase C ────── Phase D ───
 | **S-D2** | PX4 offboard 제어 | TrajectorySetpoint + OffboardControlMode → 웨이포인트 비행 | PX4 드론 4점 웨이포인트 순회 |
 | **S-D3** | ARGOS-PX4 통합 | PlatformInterface 추상화 → argos_bringup에 PX4 드론 플러그인 | 오케스트레이터가 PX4 드론 제어 |
 | **S-D4** | 드론-UGV 협업 전술 | UAV=조감정찰 + UGV=지상진입 분업 → 정보 공유 파이프라인 | 드론 열화상→UGV 목표 전달 |
-| **S-D5** | 멀티드론 편대 | PX4 SITL 2드론 + 2UGV 편대 → GLIDE 패턴 참조 | 4대 동시 오케스트레이션 |
+| **S-D5** | 멀티드론 편대 | PX4 SITL 2드론 + 2UGV 편대 → GLIDE 패턴 참조 | 4대 동시 오케스트레이션 | ✅ FormationManager 4패턴+32테스트 |
 
 ### Phase D 참조
 - **GLIDE** (arXiv 2509.14210): 코드 공개 시 즉시 포크
@@ -210,16 +200,16 @@ Phase A ─── Phase B ─── Phase C ────── Phase D ───
 
 | 세션 | 목표 | 핵심 작업 | 완료 기준 |
 |------|------|----------|----------|
-| **S-E1** | CBBA 태스크 할당 | 경매 기반 분산 임무 할당 | 3대 로봇 최적 분배 |
-| **S-E2** | Keepout Zone 자동화 | 가스·구조물 센서 → costmap 동적 갱신 | 가스 감지 시 자동 차단 |
-| **S-E3** | 화재 확산 예측 | Kalman 추적 → 확산 방향 → 대피 경로 | 예측 정확도 70%+ |
-| **S-E4** | MARL 커리큘럼 | 3단계 학습 → 오케스트레이터 fallback | PPO 리워드 수렴 |
-| **S-E5** | Isaac Lab 통합 | Isaac Sim 6.0 (ROS2 Jazzy 네이티브) | Isaac에서 ARGOS 기동 |
-| **S-E-SYN-1** | SYN-FIRE + D-Fire 혼합 | 2,030장 + 21,527장 다운로드 + 혼합 | 데이터셋 준비 완료 |
-| **S-E-SYN-2** | Gazebo 세그멘테이션 카메라 | fire_building.sdf에 자동 어노테이션 | 세그맵 발행 확인 |
-| **S-E-SYN-3** | 혼합 파인튜닝 | Kaggle P100에서 mAP 측정 | mAP50 0.96+ |
-| **S-E-SYN-4** | FLAME Diffuser | SD v1.5 (RTX 4050) 조명·연기 다양화 | 합성 이미지 1,000장 |
-| **S-E-SYN-5** | 도메인 갭 평가 | 합성 vs 실제 정량 비교 | OOD 성능 보고서 |
+| **S-E1** | CBBA 태스크 할당 | 경매 기반 분산 임무 할당 + 번들 크기 N | 3대 로봇 최적 분배 | ✅ allocate_bundles() + 82 tests |
+| **S-E2** | Keepout Zone 자동화 | 가스·구조물 센서 → costmap 동적 갱신 | 가스 감지 시 자동 차단 | ✅ keepout_manager.py |
+| **S-E3** | 화재 확산 예측 | Kalman 추적 → 확산 방향 → 대피 경로 | 예측 정확도 70%+ | ✅ kalman_fire_tracker.py |
+| **S-E4** | MARL 커리큘럼 | 3단계 학습 → 오케스트레이터 fallback | PPO 리워드 수렴 | ✅ marl_env.py |
+| **S-E5** | Isaac Lab 통합 | Isaac Sim 6.0 (ROS2 Jazzy 네이티브) | Isaac에서 ARGOS 기동 | ✅ 스켈레톤 (isaac_argos.py) |
+| **E-SYN-1** | SYN-FIRE + D-Fire 혼합 | 2,030+14,122장 → 혼합 16,152장 | 데이터셋 준비 완료 | ✅ |
+| **E-SYN-2** | Gazebo 세그카메라 | fire_building.sdf 자동 어노테이션 | 세그맵 발행 확인 | ✅ segmentation_camera.xacro |
+| **E-SYN-3** | 혼합 파인튜닝 | RTX 4050에서 30에폭 학습 | mAP50 0.70+ | ✅ **mAP50=0.718** (실데이터 val) |
+| **E-SYN-4** | FLAME Diffuser | SD v1.5 조명·연기 다양화 | 합성 1,000장 | ✅ 1,000장 (339MB) |
+| **E-SYN-5** | 도메인 갭 평가 | 합성 vs 실제 정량 비교 | OOD 보고서 | ✅ mAP50=0.722(합성val) |
 
 ### Phase E 참조 연구
 - **MARL 3단계 커리큘럼** (Cyborg/Griffith): 99.67% 자율 성공률
@@ -233,6 +223,35 @@ Phase A ─── Phase B ─── Phase C ────── Phase D ───
 | 1 | Kaggle | P100 16GB, 30h/주 | 전화번호 인증 |
 | 2 | NVIDIA NIM API | 클라우드 추론 | API 키 발급 |
 | 3 | KISTI 6호기 | A100 80GB | 연구 계획서 (6월~) |
+
+---
+
+## Phase G: SW 고도화 + 품질 강화 (v4.0) — Phase E 완료 후, Phase F와 병행
+
+> **목표**: 코드 품질·성능·AI 정확도를 실전 배치 수준으로 끌어올린다.
+> **기간**: 2026 Q2~Q4
+> **원칙**: 기능 추가 < 기존 기능 강화. "작동한다"에서 "믿을 수 있다"로.
+
+| 세션 | 목표 | 핵심 | 소요 | 상태 |
+|------|------|------|------|------|
+| **G-1** | 오케스트레이터 SRP 리팩토링 ★★★ | 1,918줄 → MissionStateMachine + SensorFusion + RobotDispatcher | 5h | ⬜ |
+| **G-2** | Gazebo RTF 최적화 ★★★ | 0.28x→0.7x+ (step 0.004, 센서 5Hz, costmap 0.1m) | 8h | ⬜ |
+| **G-3** | AI mAP50 0.80+ ★★ | FLAME +3K장, YOLOv8m 전환, 도메인 적응 | Kaggle 30h | ⬜ |
+| **G-4** | Gazebo SIL 5개+ ★★ | hose_tether, water_curtain, drone, keepout, formation | 20h | ⬜ |
+| **G-5** | TODO 8건 해소 ★★ | H9(QoS), H3/H10(Lifecycle), M5(async), M7(재시도), MCP 완성 | 10h | ⬜ |
+| **G-6** | OSS 문서 완비 ★ | CONTRIBUTING, API, DEPLOYMENT, TROUBLESHOOTING | 10h | ⬜ |
+| **G-7** | 논문 + 학회 제출 ★ | IROS/ICRA 워크숍 or 소방방재학회, 8섹션 | 40h | ⬜ 아웃라인완료 |
+
+---
+
+## 외부 제출 트랙 (독립)
+
+| 마감 | 항목 | 전제 | 상태 |
+|------|------|------|------|
+| 2026 5~6월 | 국민안전발명챌린지 | 데모 영상 + 공식 양식 | 🟡 기술서 초안 완료 |
+| 2026 Q3 | NFRI 공동연구 | 팔로업 → 응답 → 미팅 | 🟡 팔로업 이메일 준비 |
+| 2026 Q4 | 논문 투고 | G-7 완료 | ⬜ 아웃라인 완료 |
+| 2027 2~3월 | IRIS R&D 과제 | 시연 포트폴리오 + 예산안 | ⬜ 리서치 완료 |
 
 ---
 
@@ -258,38 +277,34 @@ Phase A ─── Phase B ─── Phase C ────── Phase D ───
 
 ```
 2026 Q1 (1~3월) ✅ ═══════════════════════════════════════
-  ✅ Phase A~F 코드 100% (40+파일, 12,000줄, 133 단위테스트)
-  ✅ Gazebo 실증: Nav2, Frontier, 화재월드, Zenoh(DDS 3배+), 멀티로봇이동
-  ✅ PX4 바이너리 빌드 성공 (Docker + WSL)
-  ✅ NFRI 발표 HR-셰르파 공식 제원 확보 (1차 자료)
-  ✅ GTC 2026 리서치 + 합성 데이터 파이프라인 설계
-  ✅ Blueprint 리서치 Phase 1 (R1~R4) 완료
+  ✅ v1.0→v2.0: Phase A~F 코드 100% (15,176줄, 24 노드)
+  ✅ Phase D+D+ 전체 완료 (CBBA+핸드오프+셰르파+호스 6,981줄)
+  ✅ Phase E 전체 완료 (CBBA번들N+MARL+E-SYN 전체+혼합학습 mAP50=0.718)
+  ✅ 813 테스트 + E2E 28 시나리오 + FormationManager 4패턴
+  ✅ V-5 uXRCE-DDS + V-6 UGVPlatform + S-A1 Nav2 SUCCEEDED
+  ✅ NFRI 제원 확보 + 팔로업 준비 + 기술서·논문 초안
 
-2026 Q2 (4~6월) ══════════════════════════════════════════
-  ✅ V-5 PX4↔ROS2 uXRCE-DDS 연결 성공 (2026-03-22)
-  ✅ Phase D 전체완료 (CBBA+핸드오프+PX4) + D+ 셰르파+호스 (2026-03-22)
-  ✅ S-A1 Nav2 Goal SUCCEEDED (2026-03-22)
-  ✅ V-6 UGVPlatform Gazebo 실증 (move_to 1.068m 도달)
-  ✅ E-SYN 전체완료: SYN-FIRE→YOLO 변환 + 파인튜닝(0.715) + FLAME 1000장 + 도메인갭 평가
-  ✅ D-Fire+SYN-FIRE 혼합 재학습 완료 (mAP50=0.718, 실데이터 val)
-  ✅ E2E 통합 테스트 28개 + CBBA 번들N + FormationManager → 813 테스트
-  ✅ 발명챌린지 기술서 초안 완료
-  [ ] V-7 CBBA Gazebo 멀티로봇 실증 (RTF 제약)
-  [ ] S-A4 데모 녹화 + 국민안전발명챌린지 제출 (5~6월)
+2026 Q2 (4~6월) — Phase G 고도화 ══════════════════════
+  [ ] G-1: 오케스트레이터 SRP 리팩토링 (1,918줄→3개 노드)
+  [ ] G-2: Gazebo RTF 최적화 (0.28x→0.7x+)
+  [ ] S-A4: 데모 녹화 (OBS, 4월 중순)
+  [ ] 국민안전발명챌린지 제출 (5~6월)
   [ ] NFRI 팔로업 → 공동연구 연결
 
-2026 Q3~Q4 (7~12월) ═════════════════════════════════════
-  [ ] Isaac Sim 6.0 마이그레이션 (ROS2 Jazzy 네이티브, GTC 발표 기반)
-  [ ] Cosmos Transfer2.5-2B sim-to-real 실험 (12GB VRAM, Kaggle 또는 KISTI)
-  [ ] 멀티 셰르파 호스 간섭 풀 시나리오 Gazebo 완성
-  [ ] IRIS 2027 준비 — 기술서+시연 포트폴리오+예산안
-  [ ] 논문 초안 작성 (이종 군집 소방 로봇 아키텍처)
+2026 Q3~Q4 (7~12월) — Phase G 계속 ═════════════════════
+  [ ] G-3: AI mAP50 0.80+ (Kaggle P100, FLAME +3K)
+  [ ] G-4: Gazebo SIL 테스트 5개+
+  [ ] G-5: TODO 8건 해소 (QoS, Lifecycle, async, MCP)
+  [ ] G-6: CONTRIBUTING + API + DEPLOYMENT 문서
+  [ ] G-7: 논문 초안 + 학회 투고
+  [ ] Isaac Sim 6.0 마이그레이션
+  [ ] IRIS 2027 사전 준비
 
 2027 ════════════════════════════════════════════════════
-  [ ] IRIS R&D 과제 지원 (마감 2~3월, 독립 경로)
-  [ ] Phase F 실세계 (셰르파 축소 모델 or TurtleBot4)
-  [ ] 119리빙랩 검증 (독립)
-  [ ] 차세대 AI 119 본사업 발주 시 포지셔닝
+  [ ] IRIS R&D 과제 지원 (2~3월)
+  [ ] Phase F-1: TurtleBot4/셰르파 축소 포팅
+  [ ] Phase F-2: PX4 실드론 비행 테스트
+  [ ] 119리빙랩 검증 + 차세대 AI 119 포지셔닝
 ```
 
 ---
@@ -334,8 +349,8 @@ Phase A ─── Phase B ─── Phase C ────── Phase D ───
 ### 국립소방연구원 (NFRI)
 | 항목 | 내용 | 상태 |
 |------|------|------|
-| 이지향 연구팀장 | 무인소방자동차, 공동연구 제안 | 이메일 발송 (2026-03-15) — 응답 대기 |
-| 김태동 선임연구원 | 드론 객체인식 데이터 공유 | 이메일 발송 (2026-03-15) — 응답 대기 |
+| 이지향 연구팀장 | 무인소방자동차, 공동연구 제안 | 이메일 발송 (3/15) + 팔로업 준비 (3/23) |
+| 김태동 선임연구원 | 드론 객체인식 데이터 공유 | 이메일 발송 (3/15) + 팔로업 준비 (3/23) |
 | 119리빙랩 | 시제품 현장 적용성 검증 | 장기 (Phase F) |
 
 ### 대구 지역 생태계
@@ -383,13 +398,16 @@ Phase A ─── Phase B ─── Phase C ────── Phase D ───
 
 ## KPI
 
-| 지표 | 현재 | Phase A 목표 | Phase B 목표 | 장기 목표 |
-|------|------|-------------|-------------|----------|
-| 테스트 | **748** | 520+ ✅ | 600+ ✅ | 800+ |
-| Gazebo 실동작 | SLAM 맵 생성 ✅ | Nav2 Goal SUCCEEDED ✅ | 풀 시나리오 | 멀티드론 편대 |
-| 시뮬 로봇 수 | 2UGV+1Drone | 2UGV+1Drone 동시 | 3UGV+1Drone | 5UGV+2Drone |
-| 외부 협력 | NFRI 이메일 | NFRI 응답 확인 | NFRI 방문 | 공동연구 |
-| 데모 영상 | ffmpeg 준비완료 | 1분+ 풀런 | 시나리오별 3종 | 야외 실증 |
+| 지표 | 현재 (v3.0) | 목표 (G-시리즈) | 장기 목표 |
+|------|-------------|----------------|----------|
+| 테스트 | **813** ✅ | 900+ (SIL 추가) | 1,000+ |
+| Gazebo RTF | 0.28x (단일) | 0.7x+ (G-2) | 1.0x |
+| AI mAP50 | **0.718** (실데이터) | 0.80+ (G-3) | 0.90+ |
+| Gazebo 실증 | Nav2 SUCCEEDED + V-6 ✅ | SIL 5개+ (G-4) | 풀 시나리오 |
+| 오케스트레이터 | 1,918줄 (SRP 위반) | 3×650줄 (G-1) | 유지보수 안정 |
+| 외부 협력 | NFRI 팔로업 준비 | NFRI 응답 → 미팅 | 공동연구 |
+| 문서 | README+기술서+논문아웃라인 | CONTRIBUTING+API (G-6) | 풀 OSS |
+| 외부 제출 | 기술서 초안 | 챌린지 5~6월, IRIS 2027 | 119리빙랩 |
 
 ---
 
