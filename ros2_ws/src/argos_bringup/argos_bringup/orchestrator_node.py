@@ -61,98 +61,31 @@ from argos_bringup.cbba_allocator import (
     RobotRecord as CbbaRobotRecord,
     Task as CbbaTask,
 )
+from argos_bringup.orchestrator_types import (
+    RobotRecord,
+    FIRE_TACTICS,
+    CONSENSUS_RADIUS,
+    COLLISION_SAFE_DISTANCE,
+    StopRobotCommand,
+    WaypointCommand,
+    AutonomyModeCommand,
+    HoseConflictEvent,
+    StageTransition,
+)
 
 
-# ── 소방 전술 모듈 (소방 전문가 권고) ──
-
-# 화재 유형별 대응 전술
-FIRE_TACTICS = {
-    'electrical': {
-        'suppression': 'water_fog',       # 전기화재: 무상수 (감전 방지)
-        'robot_capable': True,            # 로봇 대응 가능
-        'human_mandatory': ['전원차단'],    # 사람만 가능한 작업
-        'approach_distance': 5.0,         # 최소 접근 거리 (m)
-    },
-    'oil': {
-        'suppression': 'foam_spray',      # 유류화재: 포말 소화
-        'robot_capable': True,
-        'human_mandatory': ['포말탱크 연결'],
-        'approach_distance': 3.0,
-    },
-    'gas': {
-        'suppression': 'ventilation',     # 가스화재: 환기 + 가스 차단
-        'robot_capable': False,           # 가스 밸브 차단은 사람만
-        'human_mandatory': ['가스밸브 차단', '환기'],
-        'approach_distance': 10.0,        # 폭발 위험으로 원거리
-    },
-    'general': {
-        'suppression': 'water_fog',       # 일반화재
-        'robot_capable': True,
-        'human_mandatory': [],
-        'approach_distance': 2.0,
-    },
-}
-
-# 센서 합의 반경 (m) — 다른 로봇이 이 거리 이내에 있으면 동일 화점 확인으로 판정
-CONSENSUS_RADIUS = 5.0
-# 충돌 방지 안전 거리 (m) — 이 거리 이내에 다른 로봇이 있으면 파견 보류
-COLLISION_SAFE_DISTANCE = 2.0
-
-
-class RobotRecord:
-    """오케스트레이터가 관리하는 개별 로봇 레코드."""
-
-    def __init__(self, robot_id: str):
-        self.robot_id = robot_id
-        self.robot_type = 'ugv'
-        self.state = RobotStatus.STATE_IDLE
-        self.last_seen = 0.0
-        self.battery = 100.0
-        self.current_mission = 'idle'
-        self.mission_progress = 0.0
-        self.frontiers_remaining = 0
-        self.coverage = 0.0
-        self.capabilities = []
-        self.pose = None
-        self.comm_lost = False
-        self.battery_warned = False  # 배터리 경고 중복 방지
-        self.battery_critical_acted = False  # 배터리 위험 중복 방지
-        # 센서 퓨전 전문가 권고: busy flag (중복 파견 방지)
-        self.mission_lock = None     # 'fire_response' | 'rescue' | None
-        self.assigned_target = None  # 현재 할당된 목표 위치 (Point)
-        # 통신 품질 추적 (패킷 손실 감지, 작업 4)
-        self.last_seq = -1           # 마지막 수신 seq_number (-1=미수신)
-        self.packet_loss_count = 0   # 누적 패킷 손실 카운트
-
-        # 호스 상태 (셰르파 전용, -1 = 호스 없음 / 미해당 로봇)
-        self.hose_remaining_m: float = -1.0   # 남은 호스 길이 (m)
-        self.hose_kink_risk: float = 0.0      # 꺾임(kink) 위험도 [0.0-1.0]
-        self.hose_charged: bool = False        # 호스 가압 여부
-        self.hose_path: list = []              # 경유점 목록 [(x, y)]
-
-        # 역할 분리 (역할 기반 임무 필터링용)
-        # 'explore'     : 기본 탐색 임무
-        # 'fire_attack' : 진압 전담 (화점 접근, 소화 작업)
-        # 'hose_supply' : 호스공급 전담 (현재 위치 정지, 릴 관리)
-        # 'recon'       : 드론 정찰 (호스 제약 무시)
-        self.role: str = 'explore'
+# RobotRecord, FIRE_TACTICS, constants → orchestrator_types.py (G-1 SRP)
 
 
 class OrchestratorNode(LifecycleNode):
     """오케스트레이터 노드 — LifecycleNode 패턴.
 
-    - __init__    : 파라미터 선언만 수행 (토픽·타이머·서비스 생성 금지)
-    - on_configure: 파라미터 읽기 + 상태 변수 초기화
-    - on_activate : 구독/발행/서비스/타이머 생성 → 임무 시작
-    - on_deactivate: 모든 핸들 destroy → 임무 중단
-    - on_cleanup  : 내부 상태 리셋
-    - on_shutdown : 로그만
-
-    M1: TODO — 이 클래스는 현재 1000줄 이상으로 SRP를 위반함.
-    향후 리팩토링 시 아래 3개 노드로 분리 권장:
-      - MissionStateMachine: stage 전환, 타이머, 상태 발행
-      - SensorFusion: 8중 센싱 콜백, 위험도 집계
-      - RobotDispatcher: 파견 로직, 로봇 레지스트리, heartbeat
+    G-1 SRP 리팩토링 Phase 1 완료:
+      - RobotRecord, FIRE_TACTICS, 상수 → orchestrator_types.py 분리
+      - 명령 객체 패턴 도입 (StopRobotCommand, WaypointCommand 등)
+    Phase 2~3 예정:
+      - SensorFusion: 8중 센싱 콜백, 위험도 집계 분리
+      - RobotDispatcher: CBBA, 호스, heartbeat, 파견 분리
     """
 
     # Heartbeat 타임아웃 (초) — 근거: 로봇 발행 주기 2초 × 5회 미수신 = 10초
