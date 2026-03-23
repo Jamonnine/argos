@@ -36,7 +36,20 @@
 - **드론→UGV 화재 핸드오프**: 드론 열화상 감지 → FireAlert → CBBA → UGV 진압 + 드론 감시 자동 배정
 - **PX4 드론 통합**: uXRCE-DDS Agent 연결, PlatformInterface 추상화로 UGV/드론/셰르파 통합 제어
 - **편대 패턴**: 횡대/종대/제대/포위 4종 편대 + 충돌 검사
-- **YOLOv8 화재 탐지**: SYN-FIRE 합성 데이터 파인튜닝 (mAP50=0.715, AGPL 분리 패키지)
+- **YOLOv8 화재 탐지**: D-Fire+SYN-FIRE 혼합 학습 (mAP50=0.718, 실데이터 검증, AGPL 분리 패키지)
+
+## Experimental Results
+
+| Metric | Value | Note |
+|--------|-------|------|
+| Unit Tests | **813 passed** | 37 test files, pure Python |
+| Nav2 Goal | **SUCCEEDED** | SLAM 311×217 map, 0.50m accuracy |
+| PX4↔ROS2 | **24 topics connected** | uXRCE-DDS Agent colcon build |
+| YOLOv8 mAP50 | **0.718** | D-Fire 14K + SYN-FIRE 2K mixed |
+| FLAME Diffuser | **1,000 images** | SD v1.5, 339MB |
+| Sherpa Spawn | **Entity creation successful** | 875-line URDF, 6WD |
+| UGVPlatform | **move_to 1.068m** | Nav2 → MPPI → Gazebo |
+| Code | **15,176 lines** | 126 Python files |
 
 ## Architecture
 

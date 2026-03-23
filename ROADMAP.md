@@ -269,16 +269,21 @@ Phase A ─── Phase B ─── Phase C ────── Phase D ───
   ✅ V-5 PX4↔ROS2 uXRCE-DDS 연결 성공 (2026-03-22)
   ✅ Phase D 전체완료 (CBBA+핸드오프+PX4) + D+ 셰르파+호스 (2026-03-22)
   ✅ S-A1 Nav2 Goal SUCCEEDED (2026-03-22)
-  [ ] V-6/V-7 PlatformInterface + CBBA Gazebo 실증
-  [ ] Phase E 합성 데이터 (SYN-FIRE + FLAME Diffuser, 비용 0원)
-  [ ] 국민안전발명챌린지 제출 (5~6월) — 독립 경로
-  [ ] Kaggle P100으로 파인튜닝 실험
+  ✅ V-6 UGVPlatform Gazebo 실증 (move_to 1.068m 도달)
+  ✅ E-SYN 전체완료: SYN-FIRE→YOLO 변환 + 파인튜닝(0.715) + FLAME 1000장 + 도메인갭 평가
+  ✅ D-Fire+SYN-FIRE 혼합 재학습 완료 (mAP50=0.718, 실데이터 val)
+  ✅ E2E 통합 테스트 28개 + CBBA 번들N + FormationManager → 813 테스트
+  ✅ 발명챌린지 기술서 초안 완료
+  [ ] V-7 CBBA Gazebo 멀티로봇 실증 (RTF 제약)
+  [ ] S-A4 데모 녹화 + 국민안전발명챌린지 제출 (5~6월)
+  [ ] NFRI 팔로업 → 공동연구 연결
 
 2026 Q3~Q4 (7~12월) ═════════════════════════════════════
-  [ ] Isaac Sim 6.0 마이그레이션 (ROS2 Jazzy 네이티브)
-  [ ] Cosmos Transfer2.5-2B 실험 (Kaggle 또는 KISTI)
-  [ ] 멀티 셰르파 호스 간섭 풀 시나리오 완성
-  [ ] IRIS 2027 준비 (독립 — 시연 포트폴리오)
+  [ ] Isaac Sim 6.0 마이그레이션 (ROS2 Jazzy 네이티브, GTC 발표 기반)
+  [ ] Cosmos Transfer2.5-2B sim-to-real 실험 (12GB VRAM, Kaggle 또는 KISTI)
+  [ ] 멀티 셰르파 호스 간섭 풀 시나리오 Gazebo 완성
+  [ ] IRIS 2027 준비 — 기술서+시연 포트폴리오+예산안
+  [ ] 논문 초안 작성 (이종 군집 소방 로봇 아키텍처)
 
 2027 ════════════════════════════════════════════════════
   [ ] IRIS R&D 과제 지원 (마감 2~3월, 독립 경로)
