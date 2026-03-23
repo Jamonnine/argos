@@ -113,3 +113,20 @@ class StageTransition:
     """임무 단계 전환 요청."""
     new_stage: int
     reason: str
+
+
+@dataclass
+class DispatchRescueCommand:
+    """구조 로봇 파견 명령."""
+    robot_id: str
+    target_x: float
+    target_y: float
+    target_z: float = 0.0
+
+
+@dataclass
+class FireResponseRequest:
+    """화재 대응 CBBA 할당 요청."""
+    fire_x: float
+    fire_y: float
+    severity: str
