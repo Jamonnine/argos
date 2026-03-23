@@ -71,7 +71,10 @@ from argos_bringup.orchestrator_types import (
     AutonomyModeCommand,
     HoseConflictEvent,
     StageTransition,
+    DispatchRescueCommand,
+    FireResponseRequest,
 )
+from argos_bringup.sensor_fusion import SensorFusion
 
 
 # RobotRecord, FIRE_TACTICS, constants → orchestrator_types.py (G-1 SRP)
@@ -113,7 +116,6 @@ class OrchestratorNode(LifecycleNode):
         self.stage = None
         self.robots = {}
         self._robots_lock = None
-        self.fire_alerts = None
         self.start_time = None
         self.paused = False
         self.robot_stop_pubs = {}
@@ -121,17 +123,7 @@ class OrchestratorNode(LifecycleNode):
         self.primary_responder = None
         self.fire_response_target = None
         self.return_start_time = None
-        self._thermal_history = None
-        self.gas_danger_level = 'safe'
-        self.victims_detected = None
-        self.blocked_areas = None
-        self.audio_alerts = None
-        self._evacuation_recommended = False
-        self._gas_critical_count = 0
-        self._gas_critical_threshold = 2
-
-        # H1: gas 센서 watchdog — 마지막 수신 시간 추적
-        self._last_gas_time = None
+        self.sensor_fusion = None  # G-1 SRP: on_configure에서 SensorFusion 생성
 
         # 구독/발행/서비스/타이머 핸들 (on_activate에서 생성, on_deactivate에서 해제)
         self.status_sub = None
@@ -162,7 +154,6 @@ class OrchestratorNode(LifecycleNode):
         self.stage = MissionState.STAGE_INIT
         self.robots = {}
         self._robots_lock = threading.Lock()
-        self.fire_alerts = deque(maxlen=100)
         self.start_time = self.get_clock().now()
         self.paused = False
         self.robot_stop_pubs = {}
@@ -171,22 +162,15 @@ class OrchestratorNode(LifecycleNode):
         self.fire_response_target = None
         self.return_start_time = None
 
-        # 화재 확산 추적용 열화상 시계열 (작업 3)
-        self._thermal_history = deque(maxlen=50)
-
         # 예상 로봇 사전 등록
         for rid in expected:
             self.robots[rid] = RobotRecord(rid)
 
-        # 센싱 상태 초기화
-        self.gas_danger_level = 'safe'
-        self.victims_detected = deque(maxlen=200)
-        # H7: blocked_areas → deque로 교체 (thread-safety + 자동 용량 제한)
-        self.blocked_areas = deque(maxlen=100)
-        self.audio_alerts = deque(maxlen=50)
-        self._evacuation_recommended = False
-        self._gas_critical_count = 0
-        self._gas_critical_threshold = 2
+        # G-1 SRP: SensorFusion 모듈 생성
+        self.sensor_fusion = SensorFusion(
+            logger=self.get_logger(),
+            clock_fn=lambda: self.get_clock().now().nanoseconds / 1e9,
+        )
 
         self.get_logger().info(
             f'Orchestrator configured — expecting {len(self.robots)} robots: '
@@ -238,7 +222,7 @@ class OrchestratorNode(LifecycleNode):
 
         self.fire_sub = self.create_subscription(
             FireAlert, '/orchestrator/fire_alert',
-            self.fire_alert_callback, reliable_qos)
+            self._on_fire_alert, reliable_qos)
 
         # --- 8중 센싱 구독 (QoS 분화, 통신 전문가 권고) ---
         self._sensor_subs = []
@@ -246,16 +230,16 @@ class OrchestratorNode(LifecycleNode):
         for rid in expected:
             self._sensor_subs.append(self.create_subscription(
                 GasReading, f'/{rid}/gas/reading',
-                self.gas_callback, gas_qos))
+                self._on_gas, gas_qos))
             self._sensor_subs.append(self.create_subscription(
                 VictimDetection, f'/{rid}/victim/detections',
-                self.victim_callback, sensor_qos))
+                self._on_victim, sensor_qos))
             self._sensor_subs.append(self.create_subscription(
                 StructuralAlert, f'/{rid}/structural/alerts',
-                self.structural_callback, sensor_qos))
+                self._on_structural, sensor_qos))
             self._sensor_subs.append(self.create_subscription(
                 AudioEvent, f'/{rid}/audio/events',
-                self.audio_callback, audio_qos))
+                self._on_audio, audio_qos))
 
         # --- 호스 상태 구독 (셰르파 로봇 전용) ---
         # sherpa_ 접두사를 가진 로봇에만 구독 생성
@@ -302,8 +286,7 @@ class OrchestratorNode(LifecycleNode):
         self.heartbeat_timer = self.create_timer(
             self.HEARTBEAT_TIMEOUT / 2, self.check_heartbeats)
         # H1: gas sensor watchdog — 5초 이상 수신 없으면 경고
-        self._last_gas_time = self.get_clock().now()
-        self._gas_watchdog_timer = self.create_timer(5.0, self._check_gas_watchdog)
+        self._gas_watchdog_timer = self.create_timer(5.0, self._on_gas_watchdog)
         # 호스 충돌 주기 검사 — 2초마다 모든 셰르파 쌍 교차 검사
         self._hose_check_timer = self.create_timer(2.0, self._periodic_hose_check)
 
@@ -387,18 +370,11 @@ class OrchestratorNode(LifecycleNode):
         self.stage = None
         self.robots = {}
         self._robots_lock = None
-        self.fire_alerts = None
         self.paused = False
         self.primary_responder = None
         self.fire_response_target = None
         self.return_start_time = None
-        self._thermal_history = None
-        self.gas_danger_level = 'safe'
-        self.victims_detected = None
-        self.blocked_areas = None
-        self.audio_alerts = None
-        self._evacuation_recommended = False
-        self._gas_critical_count = 0
+        self.sensor_fusion = None
         self.get_logger().info('Orchestrator cleaned up')
         return TransitionCallbackReturn.SUCCESS
 
@@ -472,53 +448,6 @@ class OrchestratorNode(LifecycleNode):
         # 자동 단계 전환
         self._auto_stage_transition()
 
-    def fire_alert_callback(self, msg: FireAlert):
-        """화점 감지 알림 → 센서 합의 검증 → 전술적 대응 실행 (작업 2)."""
-        # 입력 검증
-        if not validate_robot_id(msg.robot_id):
-            self.get_logger().error(f'Invalid robot_id in FireAlert: "{msg.robot_id}"')
-            return
-        if not validate_severity(msg.severity):
-            self.get_logger().error(f'Invalid severity in FireAlert: "{msg.severity}"')
-            return
-        # 타임스탬프 검증 (클록 스큐 감지)
-        now_sec = self.get_clock().now().nanoseconds / 1e9
-        msg_sec = msg.header.stamp.sec + msg.header.stamp.nanosec / 1e9
-        if not validate_timestamp(msg_sec, now_sec):
-            self.get_logger().warn(
-                f'Suspicious timestamp from {msg.robot_id} '
-                f'(skew={abs(now_sec - msg_sec):.1f}s) — ignoring')
-            return
-
-        self.fire_alerts.append(msg)
-
-        # 열화상 시계열에 온도 추가 (화재 확산 추정용, 작업 3)
-        self._thermal_history.append((now_sec, msg.max_temperature_kelvin))
-
-        temp_c = msg.max_temperature_kelvin - 273.15
-        fire_pt = msg.location.point
-        self.get_logger().warn(
-            f'FIRE ALERT from {msg.robot_id}: {msg.severity} '
-            f'({temp_c:.0f}C) at ({fire_pt.x:.1f}, {fire_pt.y:.1f})')
-
-        # 화점 감지 시 FIRE_RESPONSE 단계로 전환 + 전술 실행
-        if self.stage == MissionState.STAGE_EXPLORING:
-            self.stage = MissionState.STAGE_FIRE_RESPONSE
-            self.fire_response_target = fire_pt
-            self.get_logger().warn('Stage → FIRE_RESPONSE')
-            self._execute_fire_response_cbba(fire_pt, msg.severity)
-        elif self.stage == MissionState.STAGE_FIRE_RESPONSE:
-            # 추가 화점: 더 심각하면 대응 대상 갱신
-            severity_rank = {'low': 0, 'medium': 1, 'high': 2, 'critical': 3}
-            current_sev = severity_rank.get(
-                getattr(self, '_current_fire_severity', 'low'), 0)
-            new_sev = severity_rank.get(msg.severity, 0)
-            if new_sev > current_sev:
-                self.fire_response_target = fire_pt
-                self._execute_fire_response_cbba(fire_pt, msg.severity)
-                self.get_logger().warn(
-                    f'Fire escalation: {msg.severity} — re-dispatching')
-
     def emergency_stop_callback(self, request, response):
         """긴급 정지 — 모든 로봇에 정지 명령 3회 연속 발행 (신뢰성 강화)."""
         self.stage = MissionState.STAGE_RETURNING
@@ -556,9 +485,9 @@ class OrchestratorNode(LifecycleNode):
         """
         if self.paused:
             self.paused = False
-            if getattr(self, '_evacuation_recommended', False):
+            if getattr(self.sensor_fusion, '_evacuation_recommended', False):
                 # 지휘관이 철수를 승인함
-                self._evacuation_recommended = False
+                self.sensor_fusion._evacuation_recommended = False
                 self.stage = MissionState.STAGE_RETURNING
                 self.return_start_time = self.get_clock().now()
                 self.get_logger().error(
@@ -574,201 +503,77 @@ class OrchestratorNode(LifecycleNode):
             response.message = 'Not paused'
         return response
 
-    # ─────────────────── 8중 센싱 Callbacks ───────────────────
+    # ─────────────────── 8중 센싱 Wrapper Callbacks (G-1 SRP) ───────────────────
 
-    def _check_gas_watchdog(self):
-        """H1: gas 센서 watchdog — 5초 이상 수신 없으면 경고."""
-        if self._last_gas_time is None:
-            return
-        elapsed = (self.get_clock().now() - self._last_gas_time).nanoseconds / 1e9
-        if elapsed > 5.0:
-            self.get_logger().warn(
-                f'GAS SENSOR TIMEOUT: {elapsed:.1f}초 동안 수신 없음 — 센서 연결 확인 필요',
-                throttle_duration_sec=10.0)
-
-    def gas_callback(self, msg: GasReading):
-        """가스 위험도 기반 임무 재할당 (입력 검증 포함)."""
-        rid = msg.robot_id
-        if not validate_robot_id(rid):
-            return
-        if not validate_danger_level(msg.danger_level):
-            self.get_logger().warn(f'Invalid gas danger_level: {msg.danger_level}')
-            return
-        # H1: gas 수신 시각 갱신
-        self._last_gas_time = self.get_clock().now()
-
-        if msg.evacuate_recommended and msg.danger_level == 'critical':
-            # Temporal smoothing: N회 연속 critical이어야 실제 판정 (오탐 방지)
-            self._gas_critical_count += 1
-            if self._gas_critical_count >= self._gas_critical_threshold:
-                self.gas_danger_level = 'critical'
-                self.get_logger().error(
-                    f'GAS CRITICAL CONFIRMED ({self._gas_critical_count}회 연속) from {rid}: '
-                    f'CO={msg.co_ppm:.0f}ppm O2={msg.o2_percent:.1f}% LEL={msg.lel_percent:.0f}%')
-                # 소방 전문가 권고: 자동 철수 대신 PAUSED → 지휘관 승인 후 RETURNING
-                if self.stage not in (MissionState.STAGE_RETURNING,
-                                      MissionState.STAGE_COMPLETE,
-                                      MissionState.STAGE_PAUSED):
-                    self.stage = MissionState.STAGE_PAUSED
+    def _execute_actions(self, actions: list):
+        """센서 퓨전 모듈이 반환한 명령 객체를 실행."""
+        from argos_interfaces.msg import MissionState
+        for action in actions:
+            if isinstance(action, StopRobotCommand):
+                rid = action.robot_id
+                if rid not in self.robot_stop_pubs:
+                    self.robot_stop_pubs[rid] = self.create_publisher(
+                        TwistStamped, f'/{rid}/cmd_vel', 10)
+                stop_cmd = TwistStamped()
+                stop_cmd.header.stamp = self.get_clock().now().to_msg()
+                self.robot_stop_pubs[rid].publish(stop_cmd)
+            elif isinstance(action, DispatchRescueCommand):
+                with self._robots_lock:
+                    if action.robot_id in self.robots:
+                        self.robots[action.robot_id].mission_lock = 'rescue'
+                        from geometry_msgs.msg import Point
+                        self.robots[action.robot_id].assigned_target = Point(
+                            x=action.target_x, y=action.target_y, z=action.target_z)
+            elif isinstance(action, StageTransition):
+                self.stage = action.new_stage
+                if action.new_stage == MissionState.STAGE_FIRE_RESPONSE:
+                    self.get_logger().warn('Stage → FIRE_RESPONSE')
+                elif action.new_stage == MissionState.STAGE_RETURNING:
+                    self.return_start_time = self.get_clock().now()
+                elif action.new_stage == MissionState.STAGE_PAUSED:
                     self.paused = True
-                    self._evacuation_recommended = True
-                    self.get_logger().error(
-                        'EVACUATION RECOMMENDED — 지휘관 /orchestrator/resume 승인 시 철수 시작')
-            else:
-                self.get_logger().warn(
-                    f'GAS CRITICAL from {rid} ({self._gas_critical_count}/{self._gas_critical_threshold}) '
-                    f'— 확인 대기 중')
-        elif msg.danger_level == 'danger':
-            # H6: danger는 완전 리셋이 아닌 점진적 감소 — 짧은 복귀 후 재상승 방지
-            self._gas_critical_count = max(0, self._gas_critical_count - 1)
-            self.gas_danger_level = 'danger'
-            self.get_logger().warn(
-                f'GAS DANGER from {rid}: {msg.hazard_types} — 감시 강화')
-        elif msg.danger_level in ('safe', 'caution'):
-            self._gas_critical_count = 0  # critical 연속 카운트 리셋
-            if self.gas_danger_level in ('danger', 'critical'):
-                self.gas_danger_level = msg.danger_level
+            elif isinstance(action, FireResponseRequest):
+                from geometry_msgs.msg import Point
+                fire_pt = Point(x=action.fire_x, y=action.fire_y, z=0.0)
+                self.fire_response_target = fire_pt
+                self._execute_fire_response_cbba(fire_pt, action.severity)
+        # 공유 상태 동기화
+        self.fire_response_target = self.sensor_fusion.fire_response_target
+        self.primary_responder = self.sensor_fusion.primary_responder
 
-    def victim_callback(self, msg: VictimDetection):
-        """피해자 감지 → 구조 우선순위 판정 + 최근접 로봇 파견."""
-        rid = msg.robot_id
-        if not validate_robot_id(rid):
-            return
-        # 타임스탬프 정렬 (센서 퓨전 전문가 권고)
-        now_sec = self.get_clock().now().nanoseconds / 1e9
-        msg_sec = msg.header.stamp.sec + msg.header.stamp.nanosec / 1e9
-        msg_age = now_sec - msg_sec
-        if msg_age > 5.0:
-            self.get_logger().warn(
-                f'Stale victim detection from {rid} ({msg_age:.1f}s old) — skipped',
-                throttle_duration_sec=5.0)
-            return
+    def _on_fire_alert(self, msg):
+        """화재 알림 → SensorFusion 위임 후 액션 실행."""
+        actions = self.sensor_fusion.fire_alert_callback(msg, self.stage)
+        self._execute_actions(actions)
+        self._auto_stage_transition()
 
-        loc = msg.location.point
+    def _on_gas(self, msg):
+        """가스 콜백 → SensorFusion 위임 후 액션 실행."""
+        actions = self.sensor_fusion.gas_callback(msg, self.stage)
+        self._execute_actions(actions)
 
-        self.get_logger().error(
-            f'VICTIM DETECTED by {rid}: '
-            f'({loc.x:.1f}, {loc.y:.1f}) '
-            f'conf={msg.confidence:.2f} '
-            f'status={msg.estimated_status} '
-            f'priority={msg.rescue_priority}')
-
-        # 중복 방지 (5m 이내 기존 피해자)
-        for v in self.victims_detected:
-            dist = math.hypot(loc.x - v.x, loc.y - v.y)
-            if dist < 5.0:
-                return
-        self.victims_detected.append(loc)
-
-        # 우선순위 1(움직임 없음) → 최근접 UGV 파견
-        if msg.rescue_priority == 1:
-            self._dispatch_rescue(loc, rid)
-
-    def structural_callback(self, msg: StructuralAlert):
-        """구조물 손상 → 경로 회피 / 철수 판단."""
-        rid = msg.robot_id
-        loc = msg.location.point
-
-        self.get_logger().warn(
-            f'STRUCTURAL {msg.severity.upper()}: {msg.alert_type} '
-            f'from {rid} at ({loc.x:.1f}, {loc.y:.1f}) '
-            f'disp={msg.displacement_m:.2f}m')
-
-        if msg.area_blocked:
-            self.blocked_areas.append({
-                'center': loc,
-                'radius': msg.affected_radius_m,
-                'type': msg.alert_type,
-            })
-            self.get_logger().error(
-                f'AREA BLOCKED: radius={msg.affected_radius_m:.1f}m — '
-                f'{msg.recommended_actions}')
-
-        if msg.severity == 'critical':
-            self.get_logger().error(
-                f'CRITICAL STRUCTURAL from {rid} — 해당 로봇 즉시 철수 지휘')
-            # H5: 구조물 critical 시 해당 로봇 즉시 정지 (log only → 실제 정지 명령)
-            if rid not in self.robot_stop_pubs:
-                self.robot_stop_pubs[rid] = self.create_publisher(
-                    TwistStamped, f'/{rid}/cmd_vel', 10)
-            stop_cmd = TwistStamped()
-            stop_cmd.header.stamp = self.get_clock().now().to_msg()
-            self.robot_stop_pubs[rid].publish(stop_cmd)
-            self.get_logger().error(
-                f'EVACUATION: {rid} stopped due to structural critical')
-
-    def audio_callback(self, msg: AudioEvent):
-        """음향 이벤트 → 피해자 탐색 / 폭발 경고."""
-        rid = msg.robot_id
-        self.audio_alerts.append(msg)
-
-        if msg.event_type == 'cry_for_help' and msg.immediate_response_needed:
-            loc = msg.estimated_location.point
-            self.get_logger().error(
-                f'CRY FOR HELP detected by {rid} at '
-                f'({loc.x:.1f}, {loc.y:.1f}) '
-                f'conf={msg.confidence:.2f} — 구조 임무 파견')
-            self._dispatch_rescue(loc, rid)
-
-        elif msg.event_type == 'explosion':
-            self.get_logger().error(
-                f'EXPLOSION detected by {rid} — '
-                f'intensity={msg.intensity_db:.0f}dB — 전원 주의')
-
-        elif msg.event_type == 'gas_leak':
-            self.get_logger().warn(
-                f'GAS LEAK sound detected by {rid} — '
-                f'가스 센서 데이터 교차 확인 필요')
-
-        elif msg.event_type == 'collapse':
-            self.get_logger().error(
-                f'COLLAPSE sound detected by {rid} — '
-                f'구조물 모니터 데이터 교차 확인 필요')
-
-    def _dispatch_rescue(self, target: Point, excluding_rid: str):
-        """최근접 가용 로봇을 구조 대상 위치로 파견."""
+    def _on_victim(self, msg):
+        """피해자 감지 → SensorFusion 위임 후 액션 실행."""
         with self._robots_lock:
             snapshot = dict(self.robots)
+        actions = self.sensor_fusion.victim_callback(msg, snapshot)
+        self._execute_actions(actions)
 
-        available = []
-        for rid, r in snapshot.items():
-            if rid == excluding_rid or r.comm_lost or r.pose is None:
-                continue
-            if r.mission_lock is not None:
-                continue  # busy — 다른 임무 수행 중
-            # 역할 필터: hose_supply 로봇은 진압/구조 임무 수신 거부
-            if r.role == 'hose_supply':
-                self.get_logger().info(
-                    f'RESCUE SKIP (역할): {rid} — hose_supply 전담 중, 구조 파견 불가')
-                continue
-            dx = r.pose.pose.position.x - target.x
-            dy = r.pose.pose.position.y - target.y
-            dist = math.hypot(dx, dy)
-            available.append((rid, dist))
+    def _on_structural(self, msg):
+        """구조물 알림 → SensorFusion 위임 후 액션 실행."""
+        actions = self.sensor_fusion.structural_callback(msg)
+        self._execute_actions(actions)
 
-        available.sort(key=lambda x: x[1])
+    def _on_audio(self, msg):
+        """음향 이벤트 → SensorFusion 위임 후 액션 실행."""
+        with self._robots_lock:
+            snapshot = dict(self.robots)
+        actions = self.sensor_fusion.audio_callback(msg, snapshot)
+        self._execute_actions(actions)
 
-        dispatched = []
-        for rid, dist in available[:2]:
-            # 호스 길이 제약 체크 (셰르파 전용 — 호스 없는 로봇은 자동 통과)
-            if not self._check_hose_depth(rid, target.x, target.y):
-                self.get_logger().warn(
-                    f'RESCUE SKIP: {rid} — 호스 부족으로 구조 파견 불가')
-                continue
-            with self._robots_lock:
-                if rid in self.robots:
-                    self.robots[rid].mission_lock = 'rescue'
-                    self.robots[rid].assigned_target = target
-            dispatched.append((rid, dist))
-            self.get_logger().warn(
-                f'RESCUE DISPATCH: {rid} → '
-                f'({target.x:.1f}, {target.y:.1f}) dist={dist:.1f}m')
-
-        if not dispatched:
-            self.get_logger().warn('No available robot for rescue dispatch')
-        elif len(dispatched) == 1:
-            self.get_logger().warn(
-                f'Only 1 robot available for rescue (2 recommended)')
+    def _on_gas_watchdog(self):
+        """가스 watchdog → SensorFusion 위임."""
+        self.sensor_fusion.check_gas_watchdog()
 
     # ─────────────────── 호스 제약 관리 ───────────────────
 
@@ -1065,12 +870,12 @@ class OrchestratorNode(LifecycleNode):
             ))
 
         # 2) 추가 화점 (fire_alerts에서 미처리 화점 추출)
-        if self.fire_alerts:
+        if self.sensor_fusion.fire_alerts:
             processed_locations = set()
             if fire_pt:
                 processed_locations.add((round(fire_pt.x, 1), round(fire_pt.y, 1)))
 
-            for i, alert in enumerate(self.fire_alerts[-5:]):  # 최근 5건만
+            for i, alert in enumerate(self.sensor_fusion.fire_alerts[-5:]):  # 최근 5건만
                 loc = alert.location.point
                 loc_key = (round(loc.x, 1), round(loc.y, 1))
                 if loc_key in processed_locations:
@@ -1105,8 +910,8 @@ class OrchestratorNode(LifecycleNode):
                 ))
 
         # 4) 구조 임무 (피해자 감지 시)
-        if self.victims_detected:
-            for i, victim in enumerate(self.victims_detected[-3:]):
+        if self.sensor_fusion.victims_detected:
+            for i, victim in enumerate(self.sensor_fusion.victims_detected[-3:]):
                 v_pt = getattr(victim, 'location', None)
                 if v_pt is None:
                     continue
@@ -1186,7 +991,7 @@ class OrchestratorNode(LifecycleNode):
 
         # 소방 전술 체크 (기존 로직 유지)
         fire_type = getattr(
-            self.fire_alerts[-1] if self.fire_alerts else None,
+            self.sensor_fusion.fire_alerts[-1] if self.sensor_fusion.fire_alerts else None,
             'fire_type', 'general') or 'general'
         tactics = FIRE_TACTICS.get(fire_type, FIRE_TACTICS['general'])
 
@@ -1217,7 +1022,7 @@ class OrchestratorNode(LifecycleNode):
                 '[TTS] 긴급: 화재 CRITICAL 판정 — 즉시 진압 필요.')
 
         # 화재 확산 추정
-        spread_info = self._estimate_fire_spread()
+        spread_info = self.sensor_fusion.estimate_fire_spread()
         if spread_info['trend'] == 'growing' and spread_info['spread_rate'] > 10.0:
             self.get_logger().error(
                 f'[TTS] 화재 급속 확산: {spread_info["spread_rate"]:.1f}K/s')
@@ -1335,217 +1140,6 @@ class OrchestratorNode(LifecycleNode):
             f'[호스충돌] {robot_id} 재경로: ({ax:.1f},{ay:.1f}) → '
             f'({nx:.1f},{ny:.1f}) (교차 방향 1m 회피)')
 
-    # ─────────────────── 보안: 센서 합의 + 충돌 방지 (작업 2) ───────────────────
-
-    def _verify_fire_with_consensus(self, fire_pt: Point,
-                                    reporting_rid: str) -> str:
-        """화점 감지 합의 메커니즘 — 다중 로봇 교차 검증.
-
-        화점 주변 CONSENSUS_RADIUS(5m) 이내에 다른 로봇이 있고
-        해당 로봇이 최근(5초 이내) 활성 상태이면 "confirmed" 반환.
-        단일 로봇 감지만 있으면 "unconfirmed" 반환.
-
-        Returns:
-            str: "confirmed" | "unconfirmed"
-        """
-        now = self.get_clock().now().nanoseconds / 1e9
-        confirming_robots = []
-
-        with self._robots_lock:
-            snapshot = dict(self.robots)
-
-        for rid, r in snapshot.items():
-            if rid == reporting_rid:
-                continue
-            if r.comm_lost or r.pose is None:
-                continue
-            # 최근 5초 이내 활성 상태인지 확인
-            if now - r.last_seen > 5.0:
-                continue
-
-            # 해당 로봇이 화점 CONSENSUS_RADIUS 이내에 있는지 확인
-            rx = r.pose.pose.position.x
-            ry = r.pose.pose.position.y
-            dist_to_fire = math.hypot(rx - fire_pt.x, ry - fire_pt.y)
-            if dist_to_fire <= CONSENSUS_RADIUS:
-                confirming_robots.append((rid, dist_to_fire))
-
-        if len(confirming_robots) >= 1:
-            # 2대 이상 확인 → confirmed
-            self.get_logger().info(
-                f'FIRE CONSENSUS confirmed by '
-                f'{[r[0] for r in confirming_robots]} '
-                f'(within {CONSENSUS_RADIUS}m of fire)')
-            return 'confirmed'
-        else:
-            # 1대만 감지 → unconfirmed (단독 센서 오탐 가능성)
-            self.get_logger().warn(
-                f'FIRE UNCONFIRMED: only {reporting_rid} detected fire at '
-                f'({fire_pt.x:.1f}, {fire_pt.y:.1f}) — awaiting 2nd confirmation')
-            return 'unconfirmed'
-
-    def _check_collision_risk(self, target: Point,
-                               excluding_rid: str) -> bool:
-        """충돌 방지 — 파견 대상 위치에 다른 로봇이 근접해 있는지 확인.
-
-        COLLISION_SAFE_DISTANCE(2m) 이내에 다른 로봇이 있으면
-        True(위험)를 반환하여 파견을 보류한다.
-
-        Returns:
-            bool: True = 충돌 위험 있음 (파견 보류 권고)
-        """
-        with self._robots_lock:
-            snapshot = dict(self.robots)
-
-        for rid, r in snapshot.items():
-            if rid == excluding_rid:
-                continue
-            if r.comm_lost or r.pose is None:
-                continue
-            rx = r.pose.pose.position.x
-            ry = r.pose.pose.position.y
-            dist = math.hypot(rx - target.x, ry - target.y)
-            if dist < COLLISION_SAFE_DISTANCE:
-                self.get_logger().warn(
-                    f'COLLISION RISK: {rid} is {dist:.1f}m from target '
-                    f'({target.x:.1f}, {target.y:.1f}) — dispatch deferred')
-                return True
-
-        return False
-
-    # ─────────────────── 소방: 화재 확산 예측 (작업 3) ───────────────────
-
-    def _estimate_fire_spread(self) -> dict:
-        """열화상 시계열 데이터로 화재 확산 속도 추정.
-
-        Kalman 필터 개념을 단순화하여 적용:
-          - 상태: [온도(K), 온도변화율(K/s)]
-          - 관측: max_temperature_kelvin
-          - 예측 출력: spread_rate(K/s), trend('growing'|'stable'|'declining')
-
-        열화상 데이터가 3개 미만이면 추정 불가 반환.
-
-        Returns:
-            dict: {
-                'spread_rate': float (K/s),
-                'trend': 'growing'|'stable'|'declining',
-                'estimated_radius_m': float,
-                'data_points': int,
-            }
-        """
-        if len(self._thermal_history) < 3:
-            return {
-                'spread_rate': 0.0,
-                'trend': 'unknown',
-                'estimated_radius_m': 0.0,
-                'data_points': len(self._thermal_history),
-            }
-
-        # 시계열 → 온도 변화율 계산 (간이 Kalman: 최소제곱 기울기 추정)
-        times = [t for t, _ in self._thermal_history]
-        temps = [k for _, k in self._thermal_history]
-
-        t0 = times[0]
-        n = len(times)
-        # 최소제곱 선형 회귀로 온도 변화율(기울기) 추정
-        sum_x = sum(t - t0 for t in times)
-        sum_y = sum(temps)
-        sum_xy = sum((t - t0) * temp for t, temp in zip(times, temps))
-        sum_x2 = sum((t - t0) ** 2 for t in times)
-        denom = n * sum_x2 - sum_x ** 2
-        if abs(denom) < 1e-9:
-            spread_rate = 0.0
-        else:
-            spread_rate = (n * sum_xy - sum_x * sum_y) / denom  # K/s
-
-        # 화재 반경 추정: 경험식 r = sqrt(T_excess / k), k=10 (간이 모델)
-        latest_temp = temps[-1]
-        ambient_temp_k = 300.0  # 상온 27°C = 300K
-        temp_excess = max(0.0, latest_temp - ambient_temp_k)
-        estimated_radius = math.sqrt(temp_excess / 10.0) if temp_excess > 0 else 0.0
-
-        # 트렌드 판정
-        if spread_rate > 5.0:
-            trend = 'growing'
-        elif spread_rate < -5.0:
-            trend = 'declining'
-        else:
-            trend = 'stable'
-
-        if trend == 'growing':
-            self.get_logger().warn(
-                f'FIRE SPREADING: rate={spread_rate:.1f}K/s, '
-                f'est_radius={estimated_radius:.1f}m — 진압 로봇 추가 파견 검토')
-
-        return {
-            'spread_rate': spread_rate,
-            'trend': trend,
-            'estimated_radius_m': estimated_radius,
-            'data_points': n,
-        }
-
-    # ─────────────────── Sensor Fusion ───────────────────
-
-    def compute_situation_score(self) -> dict:
-        """8중 센싱 데이터 가중 합산 — 종합 위험도 점수 산출."""
-        gas_score = {'safe': 0.0, 'caution': 0.2, 'danger': 0.6, 'critical': 1.0
-                     }.get(self.gas_danger_level, 0.0)
-
-        fire_score = 0.0
-        if self.fire_response_target is not None:
-            sev = getattr(self, '_current_fire_severity', 'low')
-            fire_score = {'low': 0.1, 'medium': 0.3, 'high': 0.6, 'critical': 1.0
-                          }.get(sev, 0.0)
-
-        structural_score = {'safe': 0.0, 'warning': 0.2, 'danger': 0.6, 'critical': 1.0
-                            }.get(getattr(self, '_structural_level', 'safe'), 0.0)
-
-        victim_score = min(1.0, len(self.victims_detected) * 0.3)
-
-        audio_score = 0.0
-        if self.audio_alerts:
-            latest = self.audio_alerts[-1]
-            if latest.immediate_response_needed:
-                audio_score = 0.8
-            elif latest.danger_level in ('danger', 'critical'):
-                audio_score = 0.5
-
-        weights = {
-            'gas': 0.30,
-            'fire': 0.25,
-            'structural': 0.20,
-            'victim': 0.15,
-            'audio': 0.10,
-        }
-
-        total_score = (
-            weights['gas'] * gas_score +
-            weights['fire'] * fire_score +
-            weights['structural'] * structural_score +
-            weights['victim'] * victim_score +
-            weights['audio'] * audio_score
-        )
-
-        if total_score >= 0.7:
-            level, recommend = 'critical', 'evacuate'
-        elif total_score >= 0.5:
-            level, recommend = 'danger', 'pause'
-        elif total_score >= 0.3:
-            level, recommend = 'caution', 'monitor'
-        else:
-            level, recommend = 'safe', 'continue'
-
-        return {
-            'score': total_score,
-            'level': level,
-            'recommend': recommend,
-            'factors': {
-                'gas': gas_score, 'fire': fire_score,
-                'structural': structural_score,
-                'victim': victim_score, 'audio': audio_score,
-            }
-        }
-
     # ─────────────────── Core Logic ───────────────────
 
     def _check_battery(self, rid: str, r: 'RobotRecord'):
@@ -1628,7 +1222,7 @@ class OrchestratorNode(LifecycleNode):
         # 화재 유형 추론 (간이 — 실제는 YOLO 분류 결과 사용)
         # 기본 'general'로 처리, FireAlert에 fire_type 필드가 있으면 활용
         fire_type = getattr(
-            self.fire_alerts[-1] if self.fire_alerts else None,
+            self.sensor_fusion.fire_alerts[-1] if self.sensor_fusion.fire_alerts else None,
             'fire_type', 'general') or 'general'
         tactics = FIRE_TACTICS.get(fire_type, FIRE_TACTICS['general'])
 
@@ -1667,7 +1261,9 @@ class OrchestratorNode(LifecycleNode):
 
         if best_ugv:
             # 충돌 방지 체크 (작업 2)
-            if self._check_collision_risk(fire_pt, best_ugv):
+            with self._robots_lock:
+                _snapshot_for_collision = dict(self.robots)
+            if self.sensor_fusion.check_collision_risk(fire_pt, best_ugv, _snapshot_for_collision):
                 self.get_logger().warn(
                     f'Dispatch to {best_ugv} deferred — collision risk at fire point')
             # 호스 길이 제약 체크 (셰르파 전용 — 호스 없는 로봇은 자동 통과)
@@ -1710,7 +1306,7 @@ class OrchestratorNode(LifecycleNode):
                 f'Fire severity: {severity} — 감시 모드 유지')
 
         # 4) 화재 확산 추정 (작업 3)
-        spread_info = self._estimate_fire_spread()
+        spread_info = self.sensor_fusion.estimate_fire_spread()
         if spread_info['trend'] == 'growing' and spread_info['spread_rate'] > 10.0:
             self.get_logger().error(
                 f'[TTS] 화재 급속 확산 감지: {spread_info["spread_rate"]:.1f}K/s — '
@@ -1765,14 +1361,16 @@ class OrchestratorNode(LifecycleNode):
         elif self.stage == MissionState.STAGE_FIRE_RESPONSE:
             now_sec = self.get_clock().now().nanoseconds / 1e9
             active_fires = [
-                f for f in self.fire_alerts
+                f for f in self.sensor_fusion.fire_alerts
                 if f.active and (now_sec - (f.header.stamp.sec + f.header.stamp.nanosec / 1e9)) < self.fire_expiry
             ]
             if not active_fires:
                 self.stage = MissionState.STAGE_EXPLORING
                 self.primary_responder = None
                 self.fire_response_target = None
-                self._current_fire_severity = None
+                self.sensor_fusion.fire_response_target = None
+                self.sensor_fusion.primary_responder = None
+                self.sensor_fusion._current_fire_severity = None
                 self.get_logger().info(
                     'No active fires remaining — Stage → EXPLORING')
 
@@ -1800,7 +1398,7 @@ class OrchestratorNode(LifecycleNode):
 
         now_sec = self.get_clock().now().nanoseconds / 1e9
         active_fires = [
-            f for f in self.fire_alerts
+            f for f in self.sensor_fusion.fire_alerts
             if f.active and (now_sec - (f.header.stamp.sec + f.header.stamp.nanosec / 1e9)) < self.fire_expiry
         ]
         msg.fire_count = len(active_fires)
@@ -1812,10 +1410,10 @@ class OrchestratorNode(LifecycleNode):
 
         msg.primary_responder = self.primary_responder or ''
 
-        msg.gas_danger_level = self.gas_danger_level
-        msg.victims_detected_count = len(self.victims_detected)
-        msg.blocked_areas_count = len(self.blocked_areas)
-        msg.audio_alerts_count = len(self.audio_alerts)
+        msg.gas_danger_level = self.sensor_fusion.gas_danger_level
+        msg.victims_detected_count = len(self.sensor_fusion.victims_detected)
+        msg.blocked_areas_count = len(self.sensor_fusion.blocked_areas)
+        msg.audio_alerts_count = len(self.sensor_fusion.audio_alerts)
 
         elapsed = self.get_clock().now() - self.start_time
         msg.elapsed_sec = elapsed.nanoseconds / 1e9
