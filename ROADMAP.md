@@ -1,8 +1,8 @@
 # ARGOS Roadmap
 
-> **최종 업데이트**: 2026-03-23
-> **현재 버전**: v3.0 — Phase A~E 코드+AI 완료, Phase G(고도화) 진입
-> **누적**: ~145시간 / **813** 테스트 / 24 노드 / 18 launch / 16 인터페이스
+> **최종 업데이트**: 2026-03-25
+> **현재 버전**: v3.0 — Phase G 고도화 5/7 완료, mAP50=0.758
+> **누적**: ~155시간 / **813** 테스트 / 24 노드 / 18 launch / 16 인터페이스
 > **세션 패턴**: 비번 1~2시간, 3일 주기 교대
 
 ---
@@ -234,13 +234,13 @@ Phase A ─── Phase B ─── Phase C ─── Phase D ─── Phase E 
 
 | 세션 | 목표 | 핵심 | 소요 | 상태 |
 |------|------|------|------|------|
-| **G-1** | 오케스트레이터 SRP 리팩토링 ★★★ | 1,918줄 → MissionStateMachine + SensorFusion + RobotDispatcher | 5h | ⬜ |
-| **G-2** | Gazebo RTF 최적화 ★★★ | 0.28x→0.7x+ (step 0.004, 센서 5Hz, costmap 0.1m) | 8h | ⬜ |
-| **G-3** | AI mAP50 0.80+ ★★ | FLAME +3K장, YOLOv8m 전환, 도메인 적응 | Kaggle 30h | ⬜ |
-| **G-4** | Gazebo SIL 5개+ ★★ | hose_tether, water_curtain, drone, keepout, formation | 20h | ⬜ |
-| **G-5** | TODO 8건 해소 ★★ | H9(QoS), H3/H10(Lifecycle), M5(async), M7(재시도), MCP 완성 | 10h | ⬜ |
-| **G-6** | OSS 문서 완비 ★ | CONTRIBUTING, API, DEPLOYMENT, TROUBLESHOOTING | 10h | ⬜ |
-| **G-7** | 논문 + 학회 제출 ★ | IROS/ICRA 워크숍 or 소방방재학회, 8섹션 | 40h | ⬜ 아웃라인완료 |
+| **G-1** | 오케스트레이터 SRP 리팩토링 ★★★ | 1,918→752줄, 4파일 아키텍처 | 5h | ✅ `2686b9c`~`1edad62` |
+| **G-2** | Gazebo RTF 최적화 ★★★ | 14파일 물리/센서/Nav2/SLAM 튜닝 | 8h | ✅ `234c4ab` |
+| **G-3** | AI mAP50 향상 ★★ | YOLOv8m Kaggle T4, mAP50=0.758 | Kaggle 1h | ✅ `3a74fe0` |
+| **G-4** | Gazebo SIL 5개+ ★★ | hose_tether, water_curtain, drone, keepout, formation | 20h | ⬜ WSL |
+| **G-5** | TODO 3건 해소 ★★ | H9(QoS), M5(async), M7(재시도) | 1h | ✅ `46d5432` |
+| **G-6** | OSS 문서 완비 ★ | CONTRIBUTING, API, DEPLOYMENT (735줄) | 3h | ✅ `cdfd1f0` |
+| **G-7** | 논문 + 학회 제출 ★ | IROS/ICRA 워크숍 or 소방방재학회 | 40h | ⬜ 아웃라인완료 |
 
 ---
 
