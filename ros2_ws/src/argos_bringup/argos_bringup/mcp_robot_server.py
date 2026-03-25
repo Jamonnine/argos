@@ -162,13 +162,87 @@ class ArgosMCPServer:
         """
         desc = skill.get_descriptor()
         endpoint = desc.ros2_action or desc.ros2_service or '(미설정)'
+
+        # G-5: ROS2 노드가 주입된 경우 실제 Action/Service 호출
+        if self._ros2_node is not None:
+            return self._dispatch_ros2_real(desc, args)
+
+        # fallback: Mock 응답 (테스트/스켈레톤 모드)
         msg = (
-            f"[STUB] 스킬 실행: robot={desc.robot_id}, "
+            f"[MOCK] 스킬 실행: robot={desc.robot_id}, "
             f"skill={desc.name}, endpoint={endpoint}, args={args}"
         )
         logger.info(msg)
-        # TODO: self._ros2_node가 주입된 경우 실제 rclpy 호출로 교체
         return msg
+
+    def _dispatch_ros2_real(self, desc, args: dict) -> str:
+        """실제 ROS2 Action/Service 호출 (ros2_node 주입 시).
+
+        G-5 TODO 해소: line 170 — Mock → 실 rclpy 호출 전환.
+        """
+        try:
+            import rclpy
+            from rclpy.action import ActionClient
+        except ImportError:
+            return f"[ERROR] rclpy 미설치 — Mock 모드로 대체"
+
+        node = self._ros2_node
+
+        if desc.ros2_action:
+            # Action 기반 스킬 (patrol, navigate_to_pose 등)
+            try:
+                from nav2_msgs.action import NavigateToPose
+                from argos_interfaces.action import PatrolArea
+            except ImportError:
+                return f"[ERROR] Action 메시지 import 실패"
+
+            action_name = desc.ros2_action
+            logger.info(f'[ROS2] Action 호출: {action_name}, args={args}')
+
+            if 'patrol' in action_name.lower():
+                client = ActionClient(node, PatrolArea, action_name)
+            else:
+                client = ActionClient(node, NavigateToPose, action_name)
+
+            if not client.wait_for_server(timeout_sec=5.0):
+                return f"[TIMEOUT] Action 서버 '{action_name}' 5초 내 미응답"
+
+            if 'patrol' in action_name.lower():
+                goal = PatrolArea.Goal()
+            else:
+                goal = NavigateToPose.Goal()
+                goal.pose.header.frame_id = 'map'
+                goal.pose.pose.position.x = float(args.get('x', 0.0))
+                goal.pose.pose.position.y = float(args.get('y', 0.0))
+                goal.pose.pose.orientation.w = 1.0
+
+            future = client.send_goal_async(goal)
+            rclpy.spin_until_future_complete(node, future, timeout_sec=10.0)
+
+            if future.result() is not None:
+                return f"[OK] Action '{action_name}' goal accepted"
+            return f"[FAIL] Action '{action_name}' goal rejected"
+
+        elif desc.ros2_service:
+            # Service 기반 스킬 (detect_fire 등)
+            from std_srvs.srv import Trigger
+            service_name = desc.ros2_service
+            logger.info(f'[ROS2] Service 호출: {service_name}')
+
+            client = node.create_client(Trigger, service_name)
+            if not client.wait_for_service(timeout_sec=5.0):
+                return f"[TIMEOUT] Service '{service_name}' 5초 내 미응답"
+
+            request = Trigger.Request()
+            future = client.call_async(request)
+            rclpy.spin_until_future_complete(node, future, timeout_sec=10.0)
+
+            if future.result() is not None:
+                resp = future.result()
+                return f"[OK] Service '{service_name}': {resp.message}"
+            return f"[FAIL] Service '{service_name}' 응답 없음"
+
+        return f"[SKIP] 스킬 '{desc.name}': ros2_action/service 미설정"
 
     # ------------------------------------------------------------------
     # 실행 모드
@@ -189,17 +263,32 @@ class ArgosMCPServer:
             self._run_stdio_fallback()
 
     def _run_with_sdk(self) -> None:
-        """공식 MCP SDK를 사용한 서버 실행 (SDK 설치된 환경)."""
-        # SDK 핸들러 등록 — 실제 핸들러 연결은 SDK API 버전별로 다를 수 있음
-        # 아래는 스켈레톤: SDK 1.x 패턴 기준
-        logger.info('MCP SDK 서버 기동 중...')
-        # TODO: SDK 버전에 맞게 핸들러 등록
-        # server = MCPServer('argos-mcp-server')
-        # @server.list_tools()
-        # async def handle_list_tools(): return self.list_tools()
-        # ...
-        # stdio_server(server)
-        print(json.dumps({'status': 'mcp_sdk_stub', 'message': 'SDK 핸들러 연결 필요'}))
+        """공식 MCP SDK를 사용한 서버 실행 (SDK 설치된 환경).
+
+        G-5 TODO 해소: line 196 — MCP SDK 핸들러 등록 완성.
+        """
+        import asyncio
+
+        server = MCPServer('argos-mcp-server')
+        mcp_server = self  # closure용
+
+        @server.list_tools()
+        async def handle_list_tools():
+            """등록된 모든 스킬을 MCP Tool 형식으로 반환."""
+            return mcp_server.list_tools()
+
+        @server.call_tool()
+        async def handle_call_tool(name: str, arguments: dict):
+            """스킬 이름과 인수로 로봇 스킬 발동."""
+            return mcp_server.call_tool(name, arguments or {})
+
+        logger.info('MCP SDK 서버 기동: %d개 스킬 등록', len(self.library))
+
+        async def _serve():
+            async with stdio_server() as (read, write):
+                await server.run(read, write, server.create_initialization_options())
+
+        asyncio.run(_serve())
 
     def _run_stdio_fallback(self) -> None:
         """MCP SDK 없이 JSON-RPC 2.0 stdio 루프."""
