@@ -66,6 +66,9 @@ class HoseTetherNode(Node):
         self.declare_parameter('robot_id', '')
         self.declare_parameter('hose_anchor_x', 0.0)
         self.declare_parameter('hose_anchor_y', 0.0)
+        # NFRI 고압 호스릴 스펙 (2025 개발품) # NFRI 2025 리빙랩
+        self.declare_parameter('hose_inner_diameter_mm', 32.0)  # 내경 32mm (기존 65mm는 일반 소방호스)
+        self.declare_parameter('hose_glow_material', True)       # 야광호스 (LED 30분→2~6시간 발광)
 
         self._max_hose_m = self.get_parameter('max_hose_length').value
         self._min_bend_radius = self.get_parameter('min_bend_radius').value

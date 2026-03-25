@@ -54,6 +54,26 @@ _CANNON_COOLING_FACTOR = 0.9
 # 탱크 고갈 경고 임계값 (잔여 시간, 분)
 _LOW_WATER_WARN_MIN = 1.0
 
+# NFRI 실화재 실험 데이터 기반 냉각 테이블 (2025 리빙랩) # NFRI 2025 리빙랩
+# (화원부 온도℃, 자체분무 냉각률, 방수포 냉각률)
+NFRI_COOLING_TABLE = [
+    (100, 0.70, 0.90),   # 저온: 기본 냉각
+    (300, 0.65, 0.88),   # 중온: 283℃→47℃ 실험값
+    (500, 0.58, 0.82),   # 고온: 509℃→45℃
+    (600, 0.55, 0.80),   # 극고온: 576℃→45℃
+    (900, 0.50, 0.75),   # 최대: 900℃ 실험 상한
+]
+
+# NFRI 가연물별 진압 소요시간 (초) # NFRI 2025 리빙랩
+FIRE_SUPPRESSION_TIMES = {
+    'wood': 27.0,           # 목재 (NFRI 실측)
+    'vehicle_ice': 65.0,    # 내연기관 자동차 (NFRI 실측)
+    'polyurethane': 45.0,   # 폴리우레탄 (추정)
+    'rubber': 90.0,         # 고무+스티로폼 (추정)
+    'electrical': 300.0,    # 전기화재 (추정)
+    'default': 120.0,
+}
+
 
 class WaterCurtainNode(Node):
     """HR-셰르파 자체분무 및 방수포 시뮬레이션 노드.
@@ -294,6 +314,20 @@ class WaterCurtainNode(Node):
         if self._curtain_active:
             return _CURTAIN_COOLING_FACTOR
         return 0.0
+
+    def estimate_suppression_time(self, fire_type: str, fire_area_m2: float = 1.0) -> float:
+        """NFRI 데이터 기반 소화 예상 시간. # NFRI 2025 리빙랩
+
+        Args:
+            fire_type: 가연물 종류 ('wood', 'vehicle_ice', 'polyurethane', 'rubber',
+                       'electrical', 'default')
+            fire_area_m2: 화재 면적 (m², 기본 1.0)
+
+        Returns:
+            예상 소화 시간 (초). 면적 1m² 초과 시 30%/m² 추가.
+        """
+        base = FIRE_SUPPRESSION_TIMES.get(fire_type, FIRE_SUPPRESSION_TIMES['default'])
+        return base * (1.0 + max(0.0, fire_area_m2 - 1.0) * 0.3)
 
     # ──────────────────────────────────────────────────────────────────────────
     # 발행

@@ -87,6 +87,8 @@
         <camera>
           <!-- 수평 FOV 56° = 0.9774 rad -->
           <horizontal_fov>0.9774</horizontal_fov>
+          <!-- NFRI spec: SWIR vertical FOV 46° --> <!-- NFRI 2025 리빙랩 -->
+          <vertical_fov>0.8029</vertical_fov>
           <image>
             <width>320</width>
             <height>240</height>
@@ -162,6 +164,8 @@
         <camera>
           <!-- 수평 FOV 95° = 1.6580 rad -->
           <horizontal_fov>1.6580</horizontal_fov>
+          <!-- NFRI spec: LWIR vertical FOV 74° --> <!-- NFRI 2025 리빙랩 -->
+          <vertical_fov>1.2915</vertical_fov>
           <image>
             <width>320</width>
             <height>240</height>

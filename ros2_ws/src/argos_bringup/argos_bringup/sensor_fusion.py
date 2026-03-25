@@ -615,8 +615,11 @@ class SensorFusion:
 
     # ─────────────────── 종합 위험도 점수 ───────────────────
 
-    def compute_situation_score(self) -> dict:
+    def compute_situation_score(self, smoke_density: float = 0.0) -> dict:
         """8중 센싱 데이터 가중 합산 — 종합 위험도 점수 산출.
+
+        Args:
+            smoke_density: 연기 농도 (0.0=맑음 ~ 1.0=100%/m 농연). # NFRI 2025 리빙랩
 
         Returns:
             dict: {
@@ -626,6 +629,32 @@ class SensorFusion:
                 'factors': dict (각 센서별 점수),
             }
         """
+        # NFRI 실험 데이터 기반 센서 환경별 신뢰도 (2025 리빙랩 실화재 실험) # NFRI 2025 리빙랩
+        # smoke_density: 0.0(맑음) ~ 1.0(100%/m 농연)
+        # 튜플 순서: (clear, light_smoke, dense_smoke, water_spray)
+        SENSOR_RELIABILITY_NFRI = {
+            'gas':        (1.0, 0.95, 0.90, 0.85),  # 가스: 농연 영향 적음
+            'fire':       (1.0, 0.85, 0.50, 0.30),  # 열화상: 농연 시 시인성 저하, 분무 시 노이즈
+            'structural': (1.0, 0.70, 0.30, 0.20),  # LiDAR: 농연 시 성능 급락
+            'victim':     (1.0, 0.80, 0.60, 0.40),  # IR: 농연 중간, 분무 시 저하
+            'audio':      (1.0, 1.0,  0.95, 0.90),  # 음향: 농연 영향 없음, 분무 소음만
+        }
+
+        def _smoke_reliability(key: str) -> float:
+            """smoke_density 값에 따라 신뢰도 테이블에서 선형 보간."""
+            # NFRI 2025 리빙랩: 0.0→clear, 0~0.4→light, 0.4~0.8→dense, 0.8~1.0→water_spray 근사
+            vals = SENSOR_RELIABILITY_NFRI[key]
+            if smoke_density <= 0.0:
+                return vals[0]
+            elif smoke_density <= 0.4:
+                t = smoke_density / 0.4
+                return vals[0] + t * (vals[1] - vals[0])
+            elif smoke_density <= 0.8:
+                t = (smoke_density - 0.4) / 0.4
+                return vals[1] + t * (vals[2] - vals[1])
+            else:
+                t = (smoke_density - 0.8) / 0.2
+                return vals[2] + t * (vals[3] - vals[2])
         # 가스 점수
         gas_score = {
             'safe': 0.0, 'caution': 0.2, 'danger': 0.6, 'critical': 1.0
@@ -662,7 +691,7 @@ class SensorFusion:
             elif getattr(latest, 'danger_level', 'safe') in ('danger', 'critical'):
                 audio_score = 0.5
 
-        # 가중 합산
+        # 가중 합산 (NFRI 신뢰도 보정 적용) # NFRI 2025 리빙랩
         weights = {
             'gas': 0.30,
             'fire': 0.25,
@@ -671,12 +700,15 @@ class SensorFusion:
             'audio': 0.10,
         }
 
+        # smoke_density 기반 신뢰도 보정: 가중치에 신뢰도 곱수 반영
+        adjusted_weights = {k: w * _smoke_reliability(k) for k, w in weights.items()}
+
         total_score = (
-            weights['gas'] * gas_score +
-            weights['fire'] * fire_score +
-            weights['structural'] * structural_score +
-            weights['victim'] * victim_score +
-            weights['audio'] * audio_score
+            adjusted_weights['gas'] * gas_score +
+            adjusted_weights['fire'] * fire_score +
+            adjusted_weights['structural'] * structural_score +
+            adjusted_weights['victim'] * victim_score +
+            adjusted_weights['audio'] * audio_score
         )
 
         # 종합 판정

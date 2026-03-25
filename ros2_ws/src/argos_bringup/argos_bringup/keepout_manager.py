@@ -96,7 +96,8 @@ class KeepoutManager(Node):
         self.declare_parameter('lel_threshold_percent', 10.0)
         self.declare_parameter('publish_rate_hz', 1.0)
         # 호스 keepout 파라미터
-        # 호스 직경 65mm + 여유 150mm = 215mm 반경
+        # NFRI 호스릴 스펙: 내경 32mm (외경 ~43mm) + 안전 여유 172mm = 215mm 반경 # NFRI 2025 리빙랩
+        # 야광호스 적용 (일광/LED 30분 노출 → 2~6시간 발광, 지하 화재 진입 시 시인성 확보)
         self.declare_parameter('hose_radius_m', 0.215)
         self.declare_parameter('hose_expiry_sec', 3600.0)     # 1시간
         self.declare_parameter('sherpa_robots', ['sherpa1', 'sherpa2'])  # 셰르파 로봇 목록

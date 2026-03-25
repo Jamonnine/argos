@@ -63,12 +63,14 @@ class HotspotDetectorNode(LifecycleNode):
         self.declare_parameter('severity_thresholds',    # 심각도 온도 기준 (K)
                                [323.15, 473.15, 673.15])  # 50°C, 200°C, 400°C
         self.declare_parameter('max_detections', 5)   # H4: 프레임당 최대 발행 화점 수 (센서퓨전 권고: 1→5)
+        self.declare_parameter('l8_max_temp', 1200.0)  # NFRI: IR 오버플로우 방지 상한 # NFRI 2025 리빙랩
 
         # 런타임 상태 (on_configure에서 초기화)
         self.top_percent = None
         self.min_area = None
         self.l8_resolution = None
         self.l8_min_temp = None
+        self.l8_max_temp = None  # NFRI 2025 리빙랩
         self.severity_thresholds = None
         self.max_detections = None
         self.bridge = None  # on_configure에서 생성
@@ -92,6 +94,7 @@ class HotspotDetectorNode(LifecycleNode):
         self.min_area = self.get_parameter('min_area').value
         self.l8_resolution = self.get_parameter('l8_resolution').value
         self.l8_min_temp = self.get_parameter('l8_min_temp').value
+        self.l8_max_temp = self.get_parameter('l8_max_temp').value  # NFRI 2025 리빙랩
         severity_list = self.get_parameter('severity_thresholds').value
         # H1: severity_thresholds 길이 검증 (low/medium/high/critical 경계 3개 필요)
         if len(severity_list) != 3:
@@ -175,8 +178,9 @@ class HotspotDetectorNode(LifecycleNode):
 
     def pixel_to_kelvin(self, pixel_value: float) -> float:
         """L8 픽셀값 → 추정 온도(K) 변환."""
-        # H2: 음수 켈빈 온도 방지 (물리적으로 불가능한 값)
-        return max(0.0, self.l8_min_temp + pixel_value * self.l8_resolution)
+        kelvin = self.l8_min_temp + pixel_value * self.l8_resolution
+        # NFRI: IR 센서 고온 오버플로우/데이터 반전 방지 (특정 온도 이상 클램핑) # NFRI 2025 리빙랩
+        return max(0.0, min(self.l8_max_temp, kelvin))
 
     def classify_severity(self, temp_kelvin: float) -> str:
         """온도 기반 심각도 분류."""
