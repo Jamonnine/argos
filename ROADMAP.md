@@ -31,7 +31,7 @@
 ```
 
 **현재 위치**: `Phase A~E 전체 완료 → Phase G(고도화) + 외부 제출 병행`
-**실적**: 813테스트 + mAP50=0.718 + Nav2 SUCCEEDED + Phase D/D+/E 전체완료 + 기술서·논문 초안
+**실적**: 813테스트 + **mAP50=0.758**(Kaggle T4) + Nav2 SUCCEEDED + Phase D/D+/E 전체완료 + **G-시리즈 6/7** + NFRI 실험6건 반영 + 논문5,000words
 
 ## 병렬 개발 프로토콜
 
@@ -181,7 +181,8 @@ Phase A ─── Phase B ─── Phase C ─── Phase D ─── Phase E 
 ### Phase D+ 참조
 - **HR-셰르파 공식 제원**: `knowledge/firefighter/unmanned-fire-robot.md` (NFRI 발표 1차 자료)
 - **HR-셰르파 호스 제약 리서치**: `knowledge/projects/research/2026-03-20-hr-sherpa-hose-constraints.md`
-- **소방호스**: 65mm 충수 시 ~56kg/본, 꺾임 시 유량 10%↓/압력 15%↓, 완전 접힘=유로 차단
+- **NFRI 리빙랩 PDF (2025, 42p)**: `knowledge/firefighter/nfri-livinglab-2025-unmanned-robot.pdf` — **실화재 실험 데이터 6건 코드 반영 완료** (2026-03-25)
+- **소방호스**: 65mm 충수 시 ~56kg/본, 호스릴 32mm 내경 (NFRI 개발품) + 야광호스
 
 ### 호스 제약 5대 규칙 (오케스트레이터 반영)
 1. **Hose-Aware Path Planning**: 급커브 금지 (최소 회전반경 제한)
@@ -237,10 +238,10 @@ Phase A ─── Phase B ─── Phase C ─── Phase D ─── Phase E 
 | **G-1** | 오케스트레이터 SRP 리팩토링 ★★★ | 1,918→752줄, 4파일 아키텍처 | 5h | ✅ `2686b9c`~`1edad62` |
 | **G-2** | Gazebo RTF 최적화 ★★★ | 14파일 물리/센서/Nav2/SLAM 튜닝 | 8h | ✅ `234c4ab` |
 | **G-3** | AI mAP50 향상 ★★ | YOLOv8m Kaggle T4, mAP50=0.758 | Kaggle 1h | ✅ `3a74fe0` |
-| **G-4** | Gazebo SIL 5개+ ★★ | hose_tether, water_curtain, drone, keepout, formation | 20h | ⬜ WSL |
-| **G-5** | TODO 3건 해소 ★★ | H9(QoS), M5(async), M7(재시도) | 1h | ✅ `46d5432` |
+| **G-4** | Gazebo SIL 5개+ ★★ | 3/5 PASS (cmd_vel+LiDAR+셰르파) + 자동화 스크립트 | 20h | 🟡 `700cf80` |
+| **G-5** | TODO 8/8 해소 ★★ | H9/M5/M7 + MCP ROS2 + H3/H10 LifecycleNode | 5h | ✅ `46d5432`~`5848c45` |
 | **G-6** | OSS 문서 완비 ★ | CONTRIBUTING, API, DEPLOYMENT (735줄) | 3h | ✅ `cdfd1f0` |
-| **G-7** | 논문 + 학회 제출 ★ | IROS/ICRA 워크숍 or 소방방재학회 | 40h | ⬜ 아웃라인완료 |
+| **G-7** | 논문 + 학회 제출 ★ | 전체 초안 5,000 words (8섹션) | 40h | 🟡 `08668e7` |
 
 ---
 
@@ -249,7 +250,7 @@ Phase A ─── Phase B ─── Phase C ─── Phase D ─── Phase E 
 | 마감 | 항목 | 전제 | 상태 |
 |------|------|------|------|
 | 2026 5~6월 | 국민안전발명챌린지 | 데모 영상 + 공식 양식 | 🟡 기술서 초안 완료 |
-| 2026 Q3 | NFRI 공동연구 | 팔로업 → 응답 → 미팅 | 🟡 팔로업 이메일 준비 |
+| 2026 Q3 | NFRI 공동연구 | 팔로업 → 응답 → 미팅 | ✅ **이지향 팀장 회신 + 리빙랩 시험환경 지원 제안** |
 | 2026 Q4 | 논문 투고 | G-7 완료 | ⬜ 아웃라인 완료 |
 | 2027 2~3월 | IRIS R&D 과제 | 시연 포트폴리오 + 예산안 | ⬜ 리서치 완료 |
 
@@ -259,10 +260,11 @@ Phase A ─── Phase B ─── Phase C ─── Phase D ─── Phase E 
 
 > **목표**: 시뮬에서 검증된 시스템을 실제 하드웨어로 전환.
 > **기간**: 2027년~ (외부 요인에 따라 유동적)
-> **변경**: NFRI 의존 제거 → 119리빙랩/IRIS/발명챌린지 **독립 경로**
+> **변경**: NFRI 협력 확정 (이지향 팀장 회신, 리빙랩 시험환경 지원 제안)
 
 | 단계 | 내용 | 전제 조건 | 예상 시점 |
 |------|------|----------|----------|
+| **F-0** | **NFRI 리빙랩 시험환경 실증** | 이지향 팀장 협의 + 리빙랩 일정 | 2026 Q3~ |
 | **F-1** | 셰르파 축소 모델 or TurtleBot4 포팅 | Phase D+ 완료 + HW 예산 | 2026 Q4~ |
 | **F-2** | PX4 실드론 비행 테스트 | 비행 허가 + 달성군 공역 | 2027 Q1~ |
 | **F-3** | Cosmos Transfer 파이프라인 | Transfer2.5-2B(12GB) or 클라우드 GPU | 2027 Q1~ |
@@ -285,18 +287,21 @@ Phase A ─── Phase B ─── Phase C ─── Phase D ─── Phase E 
   ✅ NFRI 제원 확보 + 팔로업 준비 + 기술서·논문 초안
 
 2026 Q2 (4~6월) — Phase G 고도화 ══════════════════════
-  [ ] G-1: 오케스트레이터 SRP 리팩토링 (1,918줄→3개 노드)
-  [ ] G-2: Gazebo RTF 최적화 (0.28x→0.7x+)
+  ✅ G-1: SRP 리팩토링 (1,918→752줄)
+  ✅ G-2: RTF 최적화 (14파일)
+  ✅ G-3: mAP50=0.758 (Kaggle T4)
+  ✅ G-5: TODO 8/8 (LifecycleNode + MCP)
+  ✅ G-6: CONTRIBUTING + API + DEPLOYMENT
+  ✅ NFRI 이지향 팀장 회신 + 리빙랩 실험 데이터 6건 코드 반영
+  🟡 G-4: Gazebo SIL 3/5 PASS
+  🟡 G-7: 논문 전체 초안 5,000 words
   [ ] S-A4: 데모 녹화 (OBS, 4월 중순)
   [ ] 국민안전발명챌린지 제출 (5~6월)
-  [ ] NFRI 팔로업 → 공동연구 연결
 
-2026 Q3~Q4 (7~12월) — Phase G 계속 ═════════════════════
-  [ ] G-3: AI mAP50 0.80+ (Kaggle P100, FLAME +3K)
-  [ ] G-4: Gazebo SIL 테스트 5개+
-  [ ] G-5: TODO 8건 해소 (QoS, Lifecycle, async, MCP)
-  [ ] G-6: CONTRIBUTING + API + DEPLOYMENT 문서
-  [ ] G-7: 논문 초안 + 학회 투고
+2026 Q3~Q4 (7~12월) ═════════════════════════════════
+  [ ] F-0: NFRI 리빙랩 시험환경 실증 (이지향 팀장 협의)
+  [ ] G-4: 잔여 SIL 2건 (Nav2 full, 멀티로봇)
+  [ ] G-7: 논문 Figure 제작 + 학회 투고
   [ ] Isaac Sim 6.0 마이그레이션
   [ ] IRIS 2027 사전 준비
 
@@ -338,7 +343,7 @@ Phase A ─── Phase B ─── Phase C ─── Phase D ─── Phase E 
 | **10대 전략과제 5번 — 이종 무인장비 조합** | 4계층 Platform 추상화 | ✅ 구현 완료 |
 | **10대 전략과제 4번 — AI 현장지휘체계** | 오케스트레이터 노드 | ✅ 구현 완료 |
 | **차세대 AI·클라우드 119 (2,300억)** | ARGOS = 현장 대응 로봇 레이어 | 🆕 ISMP 진행 중 (KT, ~9월) |
-| **HR-셰르파 100대 보급 (2027~2030)** | Phase D+ 셰르파 모델링 + 호스 제약 | 🆕 NFRI 공식 제원 확보 |
+| **HR-셰르파 100대 보급 (2027~2030)** | Phase D+ 셰르파 모델링 + 호스 제약 | ✅ NFRI 제원+리빙랩 실험 데이터 6건 반영 |
 | 드론 출동 연 40% 성장 | 다수 드론 오케스트레이션 수요 | ARGOS가 해결 |
 | 소방청 R&D 예산 503억 (+65%) | R&D 공모(IRIS) 참여 — **독립 경로** | 모니터링 |
 
