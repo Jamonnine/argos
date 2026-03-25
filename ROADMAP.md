@@ -238,7 +238,7 @@ Phase A ─── Phase B ─── Phase C ─── Phase D ─── Phase E 
 | **G-1** | 오케스트레이터 SRP 리팩토링 ★★★ | 1,918→752줄, 4파일 아키텍처 | 5h | ✅ `2686b9c`~`1edad62` |
 | **G-2** | Gazebo RTF 최적화 ★★★ | 14파일 물리/센서/Nav2/SLAM 튜닝 | 8h | ✅ `234c4ab` |
 | **G-3** | AI mAP50 향상 ★★ | YOLOv8m Kaggle T4, mAP50=0.758 | Kaggle 1h | ✅ `3a74fe0` |
-| **G-4** | Gazebo SIL 5개+ ★★ | 3/5 PASS (cmd_vel+LiDAR+셰르파) + 자동화 스크립트 | 20h | 🟡 `700cf80` |
+| **G-4** | Gazebo SIL 5/5 ★★ | Nav2 SUCCEEDED + cmd_vel + LiDAR + 셰르파 + 멀티로봇 | — | ✅ 전세션 검증 |
 | **G-5** | TODO 8/8 해소 ★★ | H9/M5/M7 + MCP ROS2 + H3/H10 LifecycleNode | 5h | ✅ `46d5432`~`5848c45` |
 | **G-6** | OSS 문서 완비 ★ | CONTRIBUTING, API, DEPLOYMENT (735줄) | 3h | ✅ `cdfd1f0` |
 | **G-7** | 논문 + 학회 제출 ★ | 전체 초안 5,000 words (8섹션) | 40h | 🟡 `08668e7` |
